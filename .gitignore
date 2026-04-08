@@ -1,0 +1,23 @@
+# Hunt data — never commit target data to a public repo
+targets/
+hunts/
+*.txt
+*.json
+!templates/settings.json
+
+# Notes and findings
+notes/
+findings.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log

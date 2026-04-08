@@ -1,0 +1,53 @@
+{
+  "mcpServers": {
+    "kali": {
+      "command": "mcp-server-kali",
+      "args": [],
+      "env": {
+        "PATH": "/home/kali/go/bin:/usr/local/bin:/usr/bin:/bin"
+      }
+    },
+    "burp": {
+      "command": "node",
+      "args": [
+        "/path/to/burp-mcp-proxy/index.js",
+        "--sse-url",
+        "http://127.0.0.1:9876/sse"
+      ],
+      "env": {}
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────
+// SETUP INSTRUCTIONS
+//
+// 1. Copy this file to ~/.gemini/settings.json
+//
+// 2. Fix the "kali" server:
+//    Verify mcp-server-kali is installed:
+//      which mcp-server-kali
+//    If it returns nothing:
+//      pip install mcp-server-kali --break-system-packages
+//      echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+//      source ~/.zshrc
+//
+// 3. Fix the "burp" server:
+//    Replace /path/to/burp-mcp-proxy/index.js with the real path.
+//    Find it with:
+//      find / -name "burp-mcp*" -o -name "mcp-proxy*" 2>/dev/null
+//    If the Burp extension handles MCP natively (no proxy needed),
+//    remove the "burp" block entirely.
+//
+// 4. Fix PATH in the "kali" env block:
+//    Replace /home/kali with your actual username if different.
+//    This ensures the MCP subprocess can find Go-installed tools
+//    (httpx, subfinder, katana, nuclei, etc.)
+//
+// 5. Verify it works:
+//    gemini        ← start the CLI
+//    /mcp          ← both servers must show as (connected)
+//
+// CRITICAL: Use "command" + "args" (stdio transport), NOT "url".
+// Using "url": "http://127.0.0.1:PORT" causes HTTP 404 errors.
+// ─────────────────────────────────────────────────────
