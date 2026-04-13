@@ -1255,5 +1255,33 @@ echo 'nvm use default --silent' >> ~/.zshrc
 
 ---
 
+---
+
+## Workflow at a Glance
+
+```
+Phase 0       One-time setup (CLI, MCP servers, Skill Builder)
+    ↓
+Phase 1       Recon (subfinder, amass, httpx, katana, gau) + Multi-Engine Dorking
+    ↓
+Phase 1.5     Full Port Scan on every live host (naabu) — your competitive edge
+    ↓
+Phase 2       Fingerprint (httpx, whatweb) + Skill Builder Tactical Payload Map
+    ↓
+Phase 2.5     AI-App Artifact Detection (ffuf) + 4xx/Blank-200 Fuzzing
+    ↓
+Phase 3       Live Hunt — browse manually, Gemini reads Burp traffic every 15-20 min
+    ↓
+Phase 4       Exploitation — IDOR, JWT, GraphQL, SQLi, XXE, Race, WAF bypass
+              + Nuclei Template Factory (convert every finding to a template)
+    ↓
+Phase 5       Report Generation (HackerOne or Bugcrowd format, 10 min)
+    ↓
+Phase 6       Continuous Monitoring — delta script 2x daily, forever
+              (new deploy = unhardened surface = easiest bug of the week)
+```
+
+---
+
 *GemeniFlow — Gemini CLI Bug Bounty Methodology*
 *Kali Linux 2026.1  ·  Gemini CLI  ·  github.com/OmaRrAlaa101/gemeniflow*
