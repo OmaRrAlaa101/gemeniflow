@@ -260,26 +260,32 @@ nano ~/.gemini/settings.json
 
 Paste this exactly:
 
-```json
 {
   "mcpServers": {
     "kali": {
-      "command": "mcp-server-kali",
-      "args": [],
-      "env": {}
+      "command": "/usr/bin/mcp-server",
+      "args": [
+        "--server",
+        "http://127.0.0.1:5000"
+      ]
     },
     "burp": {
-      "command": "node",
+      "command": "/usr/bin/java",
       "args": [
-        "/path/to/burp-mcp-proxy/index.js",
+        "-jar",
+        "/home/kali/mcp-proxy.jar",
         "--sse-url",
-        "http://127.0.0.1:9876/sse"
-      ],
-      "env": {}
+        "http://127.0.0.1:9876"
+      ]
+    }
+  },
+  "security": {
+    "auth": {
+      "selectedType": "oauth-personal"
     }
   }
 }
-```
+
 
 > If the Burp extension handles MCP natively without a separate proxy (check your extension's documentation), you can remove the `burp` block entirely and the extension will handle it directly.
 
