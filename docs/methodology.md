@@ -1,33 +1,44 @@
-# GemeniFlow — github.com/OmaRrAlaa101/gemeniflow
-## Complete Operator Playbook | Kali Linux 2026.1
 
-> **Critical note before starting:** `gemini.google.com` (the web UI) cannot reach your localhost. This is a browser security boundary — not a missing package or config. Everything in this guide runs in your **terminal** via the `gemini` command. The Skill Builder Gem runs in the browser but only for research output — execution always happens in the CLI.
+
+# **GemeniFlow — Complete Operator Playbook**
+
+**Repository:** github.com/OmaRrAlaa101/gemeniflow
+**Environment:** Kali Linux 2026.1
 
 ---
 
-## Table of Contents
+## **⚠️ Critical Note Before Starting**
+
+* `gemini.google.com` (browser UI) **CANNOT access localhost**
+* This is a **browser security boundary**, NOT a config issue
+* **Execution = CLI (`gemini`)**
+* **Skill Builder Gem = browser (research only)**
+
+---
+
+# **📚 Table of Contents**
 
 1. Prerequisites & Tool Installation
 2. Phase 0 — One-Time Setup (6 Steps)
 3. Phase 1 — Recon (Zero AI Tokens)
-4. Phase 2 — Fingerprint + Skill Builder Loop
-5. Phase 3 — Live Hunt (Burp Co-Pilot)
-6. Phase 4 — Exploitation & Payload Refinement
-7. Phase 5 — Report Generation
-8. Pro Habits
-9. Troubleshooting
-10. Quick Reference
+4. Phase 1.5 — Full Port Scan
+5. Phase 2 — Fingerprint + Skill Builder
+6. Phase 2.5 — AI Artifacts + 4xx Logic
+7. Phase 3 — Live Hunt (Burp Co-Pilot)
+8. Phase 4 — Exploitation
+9. Phase 5 — Report Generation
+10. Phase 6 — Continuous Monitoring
+11. Pro Habits
+12. Troubleshooting
+13. Quick Reference
 
 ---
 
-## Prerequisites & Tool Installation
+# **🧰 Prerequisites & Tool Installation**
 
-### What you need installed before anything else
-
-Run this block first. It checks what is missing.
+## **Check Installed Tools**
 
 ```bash
-# Check which tools are already installed
 for tool in subfinder assetfinder amass httpx katana gau nuclei nmap whatweb curl jq; do
   if command -v $tool &>/dev/null; then
     echo "✓ $tool"
@@ -37,174 +48,142 @@ for tool in subfinder assetfinder amass httpx katana gau nuclei nmap whatweb cur
 done
 ```
 
-### Install missing tools
+---
+
+## **Install Missing Tools**
 
 ```bash
-# Update first
 sudo apt update
 
-# Core recon tools
 sudo apt install -y nmap curl jq whatweb
-
-# Go-based tools (install via apt on Kali 2026)
 sudo apt install -y golang-go
 
-# Subfinder
 go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
-
-# Assetfinder
 go install github.com/tomnomnom/assetfinder@latest
-
-# Amass
 sudo apt install -y amass
-
-# httpx
 go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
-
-# Katana (crawler)
 go install github.com/projectdiscovery/katana/cmd/katana@latest
-
-# gau (historical URLs)
 go install github.com/lc/gau/v2/cmd/gau@latest
-
-# Nuclei
 go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
 
-# Add Go binaries to PATH (do this once)
 echo 'export PATH=$PATH:$HOME/go/bin' >> ~/.zshrc
 source ~/.zshrc
 
-# Verify all Go tools are in PATH
 which subfinder httpx katana nuclei
 ```
 
-### Install Node.js via NVM (required for Gemini CLI)
+---
+
+## **Install Node.js (Gemini CLI Requirement)**
 
 ```bash
-# Install NVM
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-
-# Reload shell
 source ~/.zshrc
 
-# Install Node.js v22 LTS
 nvm install 22
 nvm use 22
 nvm alias default 22
 
-# Verify
-node --version   # Should print v22.x.x
-npm --version    # Should print 10.x.x
+node --version
+npm --version
 ```
 
-### Directory structure you will use
+---
 
-Create this once. Every hunt lives here.
+# **📁 Directory Structure**
 
 ```bash
 mkdir -p ~/hunts
 ```
 
-When you start a new target:
-
+```
 ~/hunts/
-├── recon.sh                    ← shared script, created in Phase 0
+├── recon.sh
 └── target.com/
-    ├── GEMINI.md               ← scope file, auto-read by CLI
+    ├── GEMINI.md
     └── targets/
         └── target.com/
             ├── raw/
-            │   └── subs.txt        ← all subdomains (raw, with dupes)
+            │   └── subs.txt
             ├── processed/
-            │   ├── unique_subs.txt ← deduplicated subdomains
-            │   ├── live.txt        ← live hosts with tech stack
-            │   ├── endpoints.txt   ← all crawled endpoints
-            │   └── endpoints_unique.txt ← final deduplicated endpoint list
-            ├── all_ports/          ← NEW: Results from Phase 1.5 (naabu/nmap)
-            │   ├── full_scan.txt   ← raw list of all 65k open ports
-            │   └── services.txt    ← httpx/whatweb results for non-std ports
-            ├── artifacts/          ← NEW: Results from Phase 2.5 (ffuf)
-            │   ├── leaks.txt       ← found .env, swagger, or config files
-            │   └── ai_generated.md ← analysis of detected AI/dev artifacts
-            ├── monitoring/         ← NEW: Results from Phase 6 (Continuous)
-            │   ├── baseline.txt    ← snapshot of last known state
-            │   └── delta.txt       ← newly appeared assets found today
+            │   ├── unique_subs.txt
+            │   ├── live.txt
+            │   ├── endpoints.txt
+            │   └── endpoints_unique.txt
+            ├── all_ports/
+            │   ├── full_scan.txt
+            │   └── services.txt
+            ├── artifacts/
+            │   ├── leaks.txt
+            │   └── ai_generated.md
+            ├── monitoring/
+            │   ├── baseline.txt
+            │   └── delta.txt
             └── notes/
-                └── findings.md     ← your manual notes during hunt
+                └── findings.md
+```
 
 ---
 
-## Phase 0 — One-Time Setup
-
-> Do this once. Never again unless you wipe your system.
+# **⚙️ Phase 0 — One-Time Setup**
 
 ---
 
-### Step 1 — Install Gemini CLI
-
-Do NOT use the Kali apt package. Use npm — it is the official release and always more current.
+## **Step 1 — Install Gemini CLI**
 
 ```bash
 npm install -g @google/gemini-cli
-
-# Verify
 gemini --version
 ```
 
-Authenticate with your Google account:
+### **Authenticate**
 
 ```bash
 gemini auth login
-# This opens a browser window → sign in → authorize → return to terminal
 ```
 
-**How to verify it worked:**
-
-Start the CLI and check the first line of output:
+Verify:
 
 ```bash
 gemini
 ```
 
-You should see this line in the startup output:
+Expected:
 
 ```
-ℹ  Authenticated via "oauth-personal".
+ℹ Authenticated via "oauth-personal".
 ```
-
-If you see `Error: not authenticated` → re-run `gemini auth login`.
 
 ---
 
-### Step 2 — Install the Kali MCP Server
+## **Step 2 — Install Kali MCP Server**
 
-This is what becomes `@kali` inside the CLI. It exposes your local tools (nmap, httpx, subfinder, nuclei, etc.) to Gemini.
-
-> **The apt package does not exist.** `sudo apt install gemini-desktop-bridge` will fail. Use pip only.
-
-**Option A — pip (recommended):**
+### **Option A — pip (recommended)**
 
 ```bash
 pip install mcp-server-kali --break-system-packages
-
-# Verify the binary is in PATH
 which mcp-server-kali
 ```
 
-Expected output: `/usr/local/bin/mcp-server-kali` or `/home/kali/.local/bin/mcp-server-kali`
+Expected:
 
-**If `which` returns nothing:**
+```
+/usr/local/bin/mcp-server-kali
+or
+/home/kali/.local/bin/mcp-server-kali
+```
+
+### **If NOT in PATH**
 
 ```bash
-# pip installed it to ~/.local/bin which is not in PATH
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
-
-# Try again
 which mcp-server-kali
 ```
 
-**Option B — build from source (if pip fails):**
+---
+
+### **Option B — Build from Source**
 
 ```bash
 git clone https://github.com/rusty-sec/mcp-kali
@@ -215,36 +194,45 @@ which mcp-server-kali
 
 ---
 
-### Step 3 — Install the Burp MCP Extension
+## **Step 3 — Install Burp MCP Extension**
 
-This is what becomes `@burp` inside the CLI. It gives Gemini read access to your live proxy traffic.
+### Inside Burp:
 
-**Inside Burp Suite Professional:**
+* Extensions → BApp Store
+* Search: **MCP Server**
+* Install
 
-1. Go to **Extensions** → **BApp Store**
-2. Search: `MCP Server`
-3. Click **Install**
-4. After install, a new **MCP** tab appears in Burp
-5. Go to that tab → click **Start Server**
-6. Confirm it shows: `Server running on :9876`
+Then:
 
-**Get your Burp Collaborator URL (needed for blind SSRF/XXE payloads):**
+* Go to **MCP tab**
+* Click **Start Server**
+* Confirm:
 
-1. In Burp → **Collaborator** tab (top menu bar)
-2. Click **Copy to clipboard**
-3. You will get a URL like: `xyz123abc.oastify.com`
-4. Save this — you will paste it into GEMINI.md
+```
+Server running on :9876
+```
 
-**Configure your browser to proxy through Burp:**
+---
 
-For Firefox (recommended):
+### **Get Collaborator URL**
 
-1. Settings → Network Settings → Manual proxy configuration
-2. HTTP Proxy: `127.0.0.1` Port: `8080`
-3. Check "Also use this proxy for HTTPS"
-4. Install Burp's CA certificate: visit `http://burp` → Download CA Certificate → install in Firefox
+* Burp → Collaborator → Copy
+  Example:
 
-For Chromium:
+```
+xyz123abc.oastify.com
+```
+
+---
+
+### **Configure Proxy**
+
+#### Firefox
+
+* 127.0.0.1:8080
+* Install CA via `http://burp`
+
+#### Chromium
 
 ```bash
 chromium --proxy-server="http://127.0.0.1:8080" &
@@ -252,21 +240,16 @@ chromium --proxy-server="http://127.0.0.1:8080" &
 
 ---
 
-### Step 4 — Create `~/.gemini/settings.json`
-
-This file wires your MCP servers to the CLI. **This is the root cause of your HTTP 404 errors** — the wrong transport type.
-
-**Why you were getting 404s:**
-
-Your previous config had `"url": "http://127.0.0.1:5000"` which forces HTTP transport. The CLI tried to POST to that URL and got a 404 because nothing was serving at that endpoint. The correct pattern for local tools is **stdio transport**: `command` + `args`.
+## **Step 4 — Create ~/.gemini/settings.json**
 
 ```bash
 mkdir -p ~/.gemini
 nano ~/.gemini/settings.json
 ```
 
-Paste this exactly:
+### **Paste EXACTLY**
 
+```json
 {
   "mcpServers": {
     "kali": {
@@ -292,45 +275,27 @@ Paste this exactly:
     }
   }
 }
-
-
-> If the Burp extension handles MCP natively without a separate proxy (check your extension's documentation), you can remove the `burp` block entirely and the extension will handle it directly.
-
-**Find the burp-mcp-proxy path if you don't know it:**
-
-```bash
-find / -name "burp-mcp*" -o -name "mcp-proxy*" 2>/dev/null | grep -v proc
 ```
-
-**Verify the config works:**
-
-```bash
-gemini
-```
-
-Inside the CLI:
-
-```
-/mcp
-```
-
-You should see output like this (both servers listed with their tools):
-
-```
-MCP Servers:
-  kali (connected)
-    Tools: run_command, nmap_scan, httpx_probe, subfinder_enum, ...
-  burp (connected)  
-    Tools: list_proxy_http_history, send_http_request, get_request_details, ...
-```
-
-If you still see 404 errors, jump to the Troubleshooting section.
 
 ---
 
-### Step 5 — Create the Scope File (GEMINI.md)
+### **Verify**
 
-Create a new folder for each target. Put `GEMINI.md` inside it. **Always `cd` into that folder before running `gemini`** — the CLI reads `GEMINI.md` from the current working directory automatically on startup.
+```bash
+gemini
+/mcp
+```
+
+Expected:
+
+```
+kali (connected)
+burp (connected)
+```
+
+---
+
+## **Step 5 — Create GEMINI.md**
 
 ```bash
 mkdir -p ~/hunts/target.com
@@ -338,9 +303,6 @@ cd ~/hunts/target.com
 nano GEMINI.md
 ```
 
-Paste this template and fill in the blanks:
-
-```markdown
 # Role: Tactical Operator
 ## MCP Tools: @burp (Eyes), @kali (Hands)
 
@@ -388,27 +350,15 @@ Paste this template and fill in the blanks:
 - Fingerprint first. Exploit second. Report third.
 - Pull Burp history every 15-20 minutes during active browsing
 - Save session before ending: /chat save session_name
-```
 
 ---
 
-### Step 6 — Set Up the Skill Builder Gem
+## **Step 6 — Skill Builder Gem**
 
-The Skill Builder is a **custom Gemini Gem** — a persistent AI persona that lives in your browser at `gemini.google.com`. It is your research brain. You describe the target's tech stack → it returns known bypass techniques from real public disclosures on HackerOne, Bugcrowd, YesWeHack, and Intigriti.
-
-**How to create it (one-time):**
-
-1. Go to `gemini.google.com`
-2. In the left sidebar → click **Gems**
-3. Click **New Gem**
-4. Name it: `Skill Builder`
-5. In the **Instructions** field, paste the entire block below
-6. Click **Save**
-
-**Skill Builder System Instructions — paste verbatim:**
-
-```
-Role: You are the Skill Builder Research Agent.
+* Go to `gemini.google.com`
+* Create Gem → **Skill Builder**
+* Paste full instructions
+* Role: You are the Skill Builder Research Agent.
 Specialty: Stack-Specific Vulnerability Mapping.
 
 Knowledge Mandate:
@@ -443,13 +393,9 @@ Constraints:
 - Always cite the disclosure year and platform.
 - If the WAF is Cloudflare, always include the current bypass technique
   for that WAF in 2024-2026 specifically.
-```
 
-**What good Skill Builder output looks like:**
-
+What good Skill Builder output looks like:
 When you send it a stack, it should return something like this:
-
-```
 Tactical Payload Map — Next.js 13 / Node.js / Cloudflare
 
 1. Technology: Next.js 13 (App Router)
@@ -465,11 +411,9 @@ Tactical Payload Map — Next.js 13 / Node.js / Cloudflare
 What NOT to test:
 - Classic SQL injection (Prisma ORM parameterizes queries by default)
 - Stored XSS via API-only endpoints (no HTML rendering in the API)
-```
 
-**How to use the Skill Builder per target (the loop):**
 
-```
+How to use the Skill Builder per target (the loop):
 You (browser, Skill Builder Gem):
   "Target stack: [paste httpx -tech-detect output here].
    Give me the Tactical Payload Map."
@@ -481,24 +425,20 @@ You (terminal, Gemini CLI):
    Here it is: [paste the entire map]
    Search @burp history for endpoints where this technology is active.
    Apply these payloads."
-```
 
 ---
 
-## Phase 1 — Recon
+# **🛰 Phase 1 — Recon**
 
-> Zero AI tokens. Run everything locally first.
+
 
 ---
 
-### Step 1 — Create recon.sh
-
-Create this file once in your `~/hunts/` folder. Reuse for every target.
+## **Step 1 — Create recon.sh**
 
 ```bash
 nano ~/hunts/recon.sh
 ```
-
 Paste this entire script:
 
 ```bash
@@ -591,7 +531,8 @@ Make it executable:
 chmod +x ~/hunts/recon.sh
 ```
 
-### Step 2 — Run recon for your target
+
+## **Step 2 — Run Recon**
 
 ```bash
 # Always run from inside your target folder
@@ -601,7 +542,7 @@ cd ~/hunts/target.com
 ~/hunts/recon.sh target.com
 ```
 
-### Step 3 — Feed output to Gemini for prioritization
+## **Step 3 — Feed to Gemini**
 
 This is the only AI call in Phase 1. Open Gemini CLI while still in the target folder:
 
@@ -639,10 +580,10 @@ Tasks:
 nano ~/hunts/target.com/targets/target.com/notes/findings.md
 ```
 
-### Step 4 — Run Nuclei on Gemini's top picks only
+
+## **Step 4 — Run Nuclei**
 
 ```bash
-# Run only on the subdomains Gemini flagged as highest priority
 nuclei -u https://dev-api.target.com \
   -t exposures/ \
   -t misconfigurations/ \
@@ -650,13 +591,12 @@ nuclei -u https://dev-api.target.com \
   -severity medium,high,critical \
   -silent \
   -o ./targets/target.com/notes/nuclei_results.txt
-
-cat ./targets/target.com/notes/nuclei_results.txt
 ```
 
 ---
 
- ### Phase 1.5 — Full Port Scan (The Competitive Edge)
+# **🚀 Phase 1.5 — Full Port Scan**
+
     1. **Scan All Ports:** Run `naabu` against every live host found in Phase 1.
        ```bash
        cat ./processed/live.txt | awk '{print $1}' | sed 's/https\?:\/\///' | naabu -p - -silent -o ./all_ports/full_scan.txt
@@ -665,9 +605,10 @@ cat ./targets/target.com/notes/nuclei_results.txt
     3. **AI Task:** Ask Gemini to identify "high-value" services (Redis, Docker API, Jenkins) and provide default credential lists for each.
 
 
-## Phase 2 — Fingerprint + Skill Builder Loop
 
-> Identify the exact stack → map it to known bypass techniques → execute only targeted payloads.
+# **🧠 Phase 2 — Fingerprint + Skill Builder**
+
+Identify the exact stack → map it to known bypass techniques → execute only targeted payloads.
 
 ---
 
@@ -766,14 +707,14 @@ Now:
 
 ---
 
- ### Phase 2.5 — AI-App Artifacts & 4xx Logic
-    1. **Artifact Fuzzing:** Use `ffuf` to look for `.env`, `swagger.json`, `schema.graphql`, and `README.md`.
-    2. **Investigate 403/401s:** Never ignore "Forbidden" errors. Use Gemini to generate bypass headers (e.g., `X-Custom-IP-Authorization`).
-    3. **Blank 200s:** If a page returns a `200 OK` but the body is empty or < 50 bytes, flag it for manual inspection—it often indicates a misconfigured proxy.
+# **⚡ Phase 2.5 — Artifacts & 4xx**
 
----
+1. Artifact Fuzzing: Use `ffuf` to look for `.env`, `swagger.json`, `schema.graphql`, and `README.md`.
+    2. Investigate 403/401s: Never ignore "Forbidden" errors. Use Gemini to generate bypass headers (e.g., `X-Custom-IP-Authorization`).
+    3. Blank 200s: If a page returns a `200 OK` but the body is empty or < 50 bytes, flag it for manual inspection—it often indicates a misconfigured proxy.
 
-## Phase 3 — Live Hunt with Burp as Co-Pilot
+
+# **🧪 Phase 3 — Live Hunt**
 
 > You browse manually. Gemini reads your traffic in real-time and finds patterns you would miss.
 
@@ -881,9 +822,7 @@ It is a POST to /api/v2/user/settings with a JSON body.
 Use @burp to send the modified requests and report the response code and body for each."
 ```
 
----
-
-## Phase 4 — Exploitation & Payload Refinement
+# **💣 Phase 4 — Exploitation**
 
 > You have a confirmed signal. These prompts turn a lead into a documented, reproducible exploit.
 
@@ -1014,9 +953,7 @@ Think step-by-step:
    on HackerOne or Intigriti for XSS in 2024-2025?"
 ```
 
----
-
-## Phase 5 — Report Generation
+# **📝 Phase 5 — Report**
 
 > 10 minutes to write, not 1 hour.
 
@@ -1086,14 +1023,388 @@ Use the same vulnerability details above but restructure for Bugcrowd's format:
 
 Bugcrowd priority rating: P2 (Severity 2)."
 ```
- ### Phase 6 — Continuous Monitoring (Daily Delta)
-    1. **Baseline:** Create a "yesterday" snapshot of your subdomains and IPs.
-    2. **Daily Delta:** Run a cron job to find new assets using `subfinder` and `Shodan`.
-    3. **Rapid Response:** If a new asset appears, immediately trigger **Phase 1.5** (Full Port Scan). New deploys are often unhardened for the first 24 hours.
+
+# 🔴 Phase 6 — Continuous Monitoring (Deep Implementation)
+
+This phase turns your hunting from **one-time recon → continuous asset discovery pipeline**.
+
+You are building a system that answers daily:
+
+👉 *“What changed since yesterday?”*
 
 ---
 
-## Pro Habits
+# 1️⃣ Baseline — Create a “Yesterday Snapshot”
+
+This is your **ground truth**. Everything depends on it.
+
+## 📁 Step 1 — Create monitoring folder (already in your structure)
+
+You already defined:
+
+```
+~/hunts/target.com/targets/target.com/monitoring/
+├── baseline.txt
+└── delta.txt
+```
+
+---
+
+## 📌 Step 2 — Generate baseline subdomains
+
+Run:
+
+```bash
+cd ~/hunts/target.com
+
+subfinder -d target.com -silent \
+  | sort -u \
+  > ./targets/target.com/monitoring/baseline_subs.txt
+```
+
+---
+
+## 📌 Step 3 — Resolve subdomains → IPs
+
+You need IP tracking because:
+
+* Same domain → new IP = new infrastructure
+* New IP = often **fresh deployment / weak config**
+
+```bash
+cat ./targets/target.com/monitoring/baseline_subs.txt \
+  | dnsx -silent -a \
+  > ./targets/target.com/monitoring/baseline_ips.txt
+```
+
+---
+
+## 📌 Step 4 — Normalize baseline (IMPORTANT)
+
+Combine subs + IPs into one comparable snapshot:
+
+```bash
+cat ./targets/target.com/monitoring/baseline_subs.txt \
+    ./targets/target.com/monitoring/baseline_ips.txt \
+    | sort -u \
+    > ./targets/target.com/monitoring/baseline.txt
+```
+
+---
+
+## 📌 Step 5 — Save timestamp
+
+```bash
+date > ./targets/target.com/monitoring/last_run.txt
+```
+
+---
+
+✔️ At this point:
+
+* `baseline.txt` = EVERYTHING you knew yesterday
+* This file is NEVER manually edited
+
+---
+
+# 2️⃣ Daily Delta — Automated Discovery
+
+Now you build a script that runs **every day automatically**.
+
+---
+
+## 📁 Step 1 — Create delta script
+
+```bash
+nano ~/hunts/target.com/delta.sh
+```
+
+---
+
+## 🧠 FULL SCRIPT (DO NOT SKIP ANY LINE)
+
+```bash
+#!/bin/bash
+
+DOMAIN="target.com"
+BASE_DIR="$HOME/hunts/$DOMAIN/targets/$DOMAIN/monitoring"
+
+echo "[*] Running daily delta scan for $DOMAIN"
+
+# Create temp workspace
+mkdir -p $BASE_DIR/tmp
+
+# 1. Subdomain discovery
+echo "[*] Running subfinder..."
+subfinder -d $DOMAIN -silent \
+  | sort -u \
+  > $BASE_DIR/tmp/new_subs.txt
+
+# 2. Resolve IPs
+echo "[*] Resolving IPs..."
+cat $BASE_DIR/tmp/new_subs.txt \
+  | dnsx -silent -a \
+  > $BASE_DIR/tmp/new_ips.txt
+
+# 3. (OPTIONAL BUT POWERFUL) Shodan enrichment
+# Requires API key
+if [ ! -z "$SHODAN_API_KEY" ]; then
+  echo "[*] Querying Shodan..."
+  for ip in $(awk '{print $2}' $BASE_DIR/tmp/new_ips.txt); do
+    shodan host $ip 2>/dev/null \
+      | grep "Ports\|Organization\|OS" \
+      >> $BASE_DIR/tmp/shodan_data.txt
+  done
+fi
+
+# 4. Combine new data
+cat $BASE_DIR/tmp/new_subs.txt \
+    $BASE_DIR/tmp/new_ips.txt \
+    | sort -u \
+    > $BASE_DIR/tmp/current_snapshot.txt
+
+# 5. Compare with baseline
+echo "[*] Calculating delta..."
+
+comm -13 $BASE_DIR/baseline.txt \
+         $BASE_DIR/tmp/current_snapshot.txt \
+         > $BASE_DIR/delta.txt
+
+# 6. Count results
+NEW_COUNT=$(wc -l < $BASE_DIR/delta.txt)
+
+echo "[+] New assets found: $NEW_COUNT"
+
+# 7. If new assets exist → trigger response
+if [ "$NEW_COUNT" -gt 0 ]; then
+  echo "[!] New assets detected — triggering Phase 1.5"
+
+  cat $BASE_DIR/delta.txt
+
+  # Extract domains only (ignore IP-only lines)
+  grep -E "^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$" \
+    $BASE_DIR/delta.txt \
+    > $BASE_DIR/new_domains.txt
+
+  # Run port scan automatically
+  cat $BASE_DIR/new_domains.txt \
+    | naabu -p - -silent \
+    -o $BASE_DIR/new_ports.txt
+
+  echo "[+] Port scan completed → new_ports.txt"
+fi
+
+# 8. Update baseline for next run
+cp $BASE_DIR/tmp/current_snapshot.txt \
+   $BASE_DIR/baseline.txt
+
+# 9. Cleanup
+rm -rf $BASE_DIR/tmp
+
+# 10. Save timestamp
+date > $BASE_DIR/last_run.txt
+
+echo "[✓] Delta scan complete"
+```
+
+---
+
+## 📌 Step 2 — Make script executable
+
+```bash
+chmod +x ~/hunts/target.com/delta.sh
+```
+
+---
+
+# 3️⃣ Cron Job — Automate It Daily
+
+Now you make it run without touching it.
+
+---
+
+## 📌 Step 1 — Open cron
+
+```bash
+crontab -e
+```
+
+---
+
+## 📌 Step 2 — Add this line
+
+Run every day at 9 AM:
+
+```bash
+0 9 * * * /home/kali/hunts/target.com/delta.sh >> /home/kali/hunts/target.com/monitoring.log 2>&1
+```
+
+---
+
+## 📌 Step 3 — Verify cron is active
+
+```bash
+crontab -l
+```
+
+---
+
+✔️ Now your system runs daily automatically.
+
+---
+
+# 4️⃣ Rapid Response — THIS IS WHERE YOU WIN BUGS
+
+This is the **most important part**.
+
+When `delta.txt` is NOT empty → act immediately.
+
+---
+
+## 🔥 Step 1 — Inspect new assets
+
+```bash
+cat ./targets/target.com/monitoring/delta.txt
+```
+
+Look for:
+
+* `dev.` / `staging.` / `beta.` → 🔥 HIGH VALUE
+* new IP ranges → possible internal infra exposed
+* random subdomains → forgotten services
+
+---
+
+## 🔥 Step 2 — Immediate Phase 1.5 (Full Port Scan)
+
+If not already triggered:
+
+```bash
+cat new_domains.txt | naabu -p - -silent -o full_scan.txt
+```
+
+---
+
+## 🔥 Step 3 — Service detection
+
+```bash
+cat full_scan.txt \
+  | httpx -silent -title -tech-detect \
+  > services.txt
+```
+
+---
+
+## 🔥 Step 4 — Feed to Gemini
+
+Inside CLI:
+
+```
+New assets detected today:
+
+[paste delta.txt]
+
+Open ports:
+
+[paste services.txt]
+
+Tasks:
+1. Identify high-value services (admin panels, dashboards, APIs)
+2. List default credentials for each detected service
+3. Prioritize targets most likely vulnerable in first 24h
+4. Suggest exact first 5 manual tests I should run
+```
+
+---
+
+## 🔥 Step 5 — Manual attack immediately
+
+Focus on:
+
+* Admin panels (Jenkins, Grafana, Kibana)
+* APIs without auth
+* Dev/staging environments
+* Debug endpoints
+* Misconfigured storage (S3, GCS)
+
+---
+
+# ⚠️ Why This Works (Critical Insight)
+
+New assets are:
+
+* 🚫 NOT indexed yet
+* 🚫 NOT hardened yet
+* 🚫 NOT monitored properly
+
+👉 This is where **easy P1/P2 bugs live**
+
+---
+
+# 💡 Pro Tips (Real Operator Edge)
+
+### 1. Run delta twice daily (not once)
+
+```bash
+0 9,21 * * * ...
+```
+
+---
+
+### 2. Alert yourself instantly
+
+Add Telegram/Discord webhook:
+
+```bash
+if [ "$NEW_COUNT" -gt 0 ]; then
+  curl -X POST https://your-webhook \
+    -d "New assets found on $DOMAIN"
+fi
+```
+
+---
+
+### 3. Track ASN (advanced)
+
+Find all IP ranges of company → scan entire infrastructure:
+
+```bash
+whois target.com | grep -i "org"
+```
+
+Then pivot using:
+
+* `amass intel`
+* `asnmap`
+
+---
+
+### 4. NEVER ignore 1 new subdomain
+
+👉 One subdomain = one potential bounty
+
+---
+
+# 🧠 Mental Model (Remember This)
+
+```
+Baseline = Yesterday’s world
+Delta    = Today’s changes
+Bugs     = Found in the difference
+```
+
+---
+
+you  can upgrade this into:
+
+*  multi-target automation (monitor 20+ programs)
+*  Telegram alert system
+*  auto-Nuclei on new assets
+*  full recon + delta fusion pipeline
+
+
+
+# **🧠 Pro Habits**
 
 | Habit | Command | Why |
 |---|---|---|
@@ -1110,7 +1421,7 @@ Bugcrowd priority rating: P2 (Severity 2)."
 
 ---
 
-## Troubleshooting
+# **🛠 Troubleshooting**
 
 ---
 
@@ -1283,5 +1594,77 @@ Phase 6       Continuous Monitoring — delta script 2x daily, forever
 
 ---
 
+
+## 🚀 The GemeniFlow v2.0 Pipeline
+
+```mermaid
+graph TD
+    P0[Phase 0: Setup] --> P1[Phase 1: Recon & Dorking]
+    P1 --> P15[Phase 1.5: Full Port Scan]
+    P15 --> P2[Phase 2: Fingerprint & Skill Builder]
+    P2 --> P25[Phase 2.5: Artifacts & 4xx Fuzzing]
+    P25 --> P3[Phase 3: Live Hunt & Burp Co-Pilot]
+    P3 --> P4[Phase 4: Exploitation & Template Factory]
+    P4 --> P5[Phase 5: 10-Min Reporting]
+    P5 --> P6[Phase 6: Continuous Monitoring]
+    P6 -->|New Asset Found| P15
+```
+
+### 🛠️ Phase 0: One-Time Setup
+* **CLI**: Install Gemini CLI via `npm`.
+* **MCP**: Install `mcp-server-kali` via `pip`.
+* **Proxy**: Configure Burp MCP extension and `mcp-proxy.jar`.
+* **Config**: Write `~/.gemini/settings.json` to wire servers (using absolute paths).
+* **Context**: Create `GEMINI.md` scope file and the **Skill Builder Gem** in-browser.
+
+### 🔍 Phase 1: Recon & Multi-Engine Dorking
+* **Automation**: Run `recon.sh` (`subfinder` → `amass` → `httpx` → `katana` → `gau`).
+* **Intel**: Manually run dorks across Google, Bing, GitHub, Gist, GitLab, VirusTotal, and URLScan.
+* **AI Sort**: Feed all raw data to Gemini for high-signal prioritization.
+* **Targeting**: Run `nuclei` only on Gemini’s top-ranked picks to minimize noise.
+
+### ⚡ Phase 1.5: Full Port Scan (The "Orwa" Edge)
+* **The "All-Port" Rule**: Run `naabu -p -` against every live host.
+* **Service Probing**: Use `httpx` to probe non-standard ports (e.g., 8080, 8443, 9000).
+* **Analysis**: Gemini identifies services and maps them to known CVEs or default credentials.
+* **Manual Check**: Test default creds on every unhardened admin panel or forgotten database.
+
+### 🧬 Phase 2: Fingerprint & Skill Builder Loop
+* **Deep Dive**: Use `httpx -tech-detect` and `whatweb` to confirm the exact stack.
+* **Research**: Consult the **Skill Builder Gem** for the 3–5 most exploited bugs for that stack (2024–2026).
+* **Tactical Map**: Paste the map into the CLI; Gemini cross-references this with active Burp history.
+
+### 📂 Phase 2.5: AI-App Artifacts & 4xx Fuzzing
+* **Artifact Hunt**: `ffuf` for `.env`, `swagger.json`, `README.md`, and `schema.graphql`.
+* **Parser Confusion**: Capture 403/404/301/302 responses; never exclude them.
+* **Blank 200s**: Investigate success responses with empty bodies (< 50 bytes).
+* **Extraction**: Feed discovered files to Gemini for credential and path extraction.
+
+### 🎯 Phase 3: Live Hunt (Burp Co-Pilot)
+* **Systematic Browsing**: Systematic coverage of Auth, Profile, Billing, and API flows.
+* **Traffic Analysis**: Pull Burp history every 15 minutes.
+* **AI Flags**: Gemini identifies IDOR, JWT flaws, and GraphQL introspection in real-time.
+
+### 💥 Phase 4: Exploitation & Template Factory
+* **Agentic Execution**: Interactive prompts for IDOR, SQLi, XXE, Race Conditions, and WAF Bypasses.
+* **Action**: `@burp` or `@kali` execute the payloads and report the diff.
+* **Scaling**: Once a bug is confirmed, ask Gemini to generate a **Nuclei v3 Template** to scan your entire portfolio for the same flaw.
+
+### 📝 Phase 5: 10-Minute Reporting
+* **Session Management**: `/chat save` the session before reporting.
+* **Drafting**: Paste the raw request/response; Gemini generates a peer-reviewed HackerOne/Bugcrowd report.
+* **Quality**: Includes impact, remediation, and CVSS 3.1 vector.
+
+### 🔄 Phase 6: Continuous Monitoring
+* **Baseline**: Establish a snapshot of subdomains, IPs, and GitHub mentions.
+* **Daily Delta**: Run the delta script twice daily to catch new deployments.
+* **Rapid Response**:
+    * **New IP**: Immediate `naabu` full port scan.
+    * **New Subdomain**: Immediate `httpx` tech-probe.
+    * **New GitHub Leak**: Immediate credential blast-radius analysis.
+
+---
+
 *GemeniFlow — Gemini CLI Bug Bounty Methodology*
 *Kali Linux 2026.1  ·  Gemini CLI  ·  github.com/OmaRrAlaa101/gemeniflow*
+
