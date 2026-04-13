@@ -107,7 +107,6 @@ mkdir -p ~/hunts
 
 When you start a new target:
 
-```
 ~/hunts/
 ├── recon.sh                    ← shared script, created in Phase 0
 └── target.com/
@@ -121,9 +120,17 @@ When you start a new target:
             │   ├── live.txt        ← live hosts with tech stack
             │   ├── endpoints.txt   ← all crawled endpoints
             │   └── endpoints_unique.txt ← final deduplicated endpoint list
+            ├── all_ports/          ← NEW: Results from Phase 1.5 (naabu/nmap)
+            │   ├── full_scan.txt   ← raw list of all 65k open ports
+            │   └── services.txt    ← httpx/whatweb results for non-std ports
+            ├── artifacts/          ← NEW: Results from Phase 2.5 (ffuf)
+            │   ├── leaks.txt       ← found .env, swagger, or config files
+            │   └── ai_generated.md ← analysis of detected AI/dev artifacts
+            ├── monitoring/         ← NEW: Results from Phase 6 (Continuous)
+            │   ├── baseline.txt    ← snapshot of last known state
+            │   └── delta.txt       ← newly appeared assets found today
             └── notes/
                 └── findings.md     ← your manual notes during hunt
-```
 
 ---
 
@@ -649,6 +656,15 @@ cat ./targets/target.com/notes/nuclei_results.txt
 
 ---
 
+ ### Phase 1.5 — Full Port Scan (The Competitive Edge)
+    1. **Scan All Ports:** Run `naabu` against every live host found in Phase 1.
+       ```bash
+       cat ./processed/live.txt | awk '{print $1}' | sed 's/https\?:\/\///' | naabu -p - -silent -o ./all_ports/full_scan.txt
+       ```
+    2. **Service Discovery:** Feed open ports back into `httpx` to find non-standard web services (e.g., 8080, 8443, 9000).
+    3. **AI Task:** Ask Gemini to identify "high-value" services (Redis, Docker API, Jenkins) and provide default credential lists for each.
+
+
 ## Phase 2 — Fingerprint + Skill Builder Loop
 
 > Identify the exact stack → map it to known bypass techniques → execute only targeted payloads.
@@ -747,6 +763,13 @@ Now:
 2. For each Tactical Payload in the map, identify the best matching endpoint in Burp history.
 3. Apply the first payload. Report the response code, response body snippet, and any differences from a baseline request."
 ```
+
+---
+
+ ### Phase 2.5 — AI-App Artifacts & 4xx Logic
+    1. **Artifact Fuzzing:** Use `ffuf` to look for `.env`, `swagger.json`, `schema.graphql`, and `README.md`.
+    2. **Investigate 403/401s:** Never ignore "Forbidden" errors. Use Gemini to generate bypass headers (e.g., `X-Custom-IP-Authorization`).
+    3. **Blank 200s:** If a page returns a `200 OK` but the body is empty or < 50 bytes, flag it for manual inspection—it often indicates a misconfigured proxy.
 
 ---
 
@@ -865,6 +888,9 @@ Use @burp to send the modified requests and report the response code and body fo
 > You have a confirmed signal. These prompts turn a lead into a documented, reproducible exploit.
 
 ---
+
+> **Template Factory:** Once a vulnerability is confirmed manually, ask Gemini: "Based on this HTTP request/response, write a Nuclei v3 template to automate this check across my other 50 programs".
+
 
 ### IDOR / BOLA Exploitation
 
@@ -1060,6 +1086,10 @@ Use the same vulnerability details above but restructure for Bugcrowd's format:
 
 Bugcrowd priority rating: P2 (Severity 2)."
 ```
+ ### Phase 6 — Continuous Monitoring (Daily Delta)
+    1. **Baseline:** Create a "yesterday" snapshot of your subdomains and IPs.
+    2. **Daily Delta:** Run a cron job to find new assets using `subfinder` and `Shodan`.
+    3. **Rapid Response:** If a new asset appears, immediately trigger **Phase 1.5** (Full Port Scan). New deploys are often unhardened for the first 24 hours.
 
 ---
 
