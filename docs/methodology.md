@@ -1,5 +1,3 @@
-
-
 # **GemeniFlow — Complete Operator Playbook**
 
 **Repository:** github.com/OmaRrAlaa101/gemeniflow
@@ -25,6 +23,9 @@
 5. Phase 2 — Fingerprint + Skill Builder
 6. Phase 2.5 — AI Artifacts + 4xx Logic
 7. Phase 3 — Live Hunt (Burp Co-Pilot)
+   - 7a. Session Context Template
+   - 7b. Session Start Checklist
+   - 7c. Browsing & Traffic Analysis
 8. Phase 4 — Exploitation
 9. Phase 5 — Report Generation
 10. Phase 6 — Continuous Monitoring
@@ -101,6 +102,7 @@ mkdir -p ~/hunts
 ├── recon.sh
 └── target.com/
     ├── GEMINI.md
+    ├── session-context.md        ← NEW: paste Session Context Template here
     └── targets/
         └── target.com/
             ├── raw/
@@ -303,6 +305,7 @@ cd ~/hunts/target.com
 nano GEMINI.md
 ```
 
+```markdown
 # Role: Tactical Operator
 ## MCP Tools: @burp (Eyes), @kali (Hands)
 
@@ -350,6 +353,7 @@ nano GEMINI.md
 - Fingerprint first. Exploit second. Report third.
 - Pull Burp history every 15-20 minutes during active browsing
 - Save session before ending: /chat save session_name
+```
 
 ---
 
@@ -357,8 +361,10 @@ nano GEMINI.md
 
 * Go to `gemini.google.com`
 * Create Gem → **Skill Builder**
-* Paste full instructions
-* Role: You are the Skill Builder Research Agent.
+* Paste full instructions below:
+
+```
+Role: You are the Skill Builder Research Agent.
 Specialty: Stack-Specific Vulnerability Mapping.
 
 Knowledge Mandate:
@@ -425,12 +431,11 @@ You (terminal, Gemini CLI):
    Here it is: [paste the entire map]
    Search @burp history for endpoints where this technology is active.
    Apply these payloads."
+```
 
 ---
 
 # **🛰 Phase 1 — Recon**
-
-
 
 ---
 
@@ -439,6 +444,7 @@ You (terminal, Gemini CLI):
 ```bash
 nano ~/hunts/recon.sh
 ```
+
 Paste this entire script:
 
 ```bash
@@ -531,6 +537,7 @@ Make it executable:
 chmod +x ~/hunts/recon.sh
 ```
 
+---
 
 ## **Step 2 — Run Recon**
 
@@ -541,6 +548,8 @@ cd ~/hunts/target.com
 # Run recon
 ~/hunts/recon.sh target.com
 ```
+
+---
 
 ## **Step 3 — Feed to Gemini**
 
@@ -580,6 +589,7 @@ Tasks:
 nano ~/hunts/target.com/targets/target.com/notes/findings.md
 ```
 
+---
 
 ## **Step 4 — Run Nuclei**
 
@@ -597,14 +607,14 @@ nuclei -u https://dev-api.target.com \
 
 # **🚀 Phase 1.5 — Full Port Scan**
 
-    1. **Scan All Ports:** Run `naabu` against every live host found in Phase 1.
-       ```bash
-       cat ./processed/live.txt | awk '{print $1}' | sed 's/https\?:\/\///' | naabu -p - -silent -o ./all_ports/full_scan.txt
-       ```
-    2. **Service Discovery:** Feed open ports back into `httpx` to find non-standard web services (e.g., 8080, 8443, 9000).
-    3. **AI Task:** Ask Gemini to identify "high-value" services (Redis, Docker API, Jenkins) and provide default credential lists for each.
+1. **Scan All Ports:** Run `naabu` against every live host found in Phase 1.
+   ```bash
+   cat ./processed/live.txt | awk '{print $1}' | sed 's/https\?:\/\///' | naabu -p - -silent -o ./all_ports/full_scan.txt
+   ```
+2. **Service Discovery:** Feed open ports back into `httpx` to find non-standard web services (e.g., 8080, 8443, 9000).
+3. **AI Task:** Ask Gemini to identify "high-value" services (Redis, Docker API, Jenkins) and provide default credential lists for each.
 
-
+---
 
 # **🧠 Phase 2 — Fingerprint + Skill Builder**
 
@@ -649,6 +659,8 @@ https://target.com [200] [Next.js] [React] [Cloudflare] [Node.js]
 
 From this you know: Next.js frontend, Node.js backend, Cloudflare WAF.
 
+---
+
 ### Step 2 — Update GEMINI.md with the stack
 
 ```bash
@@ -667,6 +679,8 @@ Fill in the Tech Stack section. Example:
 - Cloud: AWS (S3 bucket URLs visible in image requests)
 - GraphQL: Yes — endpoint at /graphql (detected via Katana)
 ```
+
+---
 
 ### Step 3 — Consult the Skill Builder Gem (browser)
 
@@ -689,6 +703,8 @@ YesWeHack, or Intigriti in 2024-2026.
 Include the specific bypass technique and a ready-to-run CLI command.
 ```
 
+---
+
 ### Step 4 — Bring the Tactical Payload Map into your CLI session
 
 Switch back to your terminal. Paste the Skill Builder's output directly:
@@ -709,21 +725,167 @@ Now:
 
 # **⚡ Phase 2.5 — Artifacts & 4xx**
 
-1. Artifact Fuzzing: Use `ffuf` to look for `.env`, `swagger.json`, `schema.graphql`, and `README.md`.
-    2. Investigate 403/401s: Never ignore "Forbidden" errors. Use Gemini to generate bypass headers (e.g., `X-Custom-IP-Authorization`).
-    3. Blank 200s: If a page returns a `200 OK` but the body is empty or < 50 bytes, flag it for manual inspection—it often indicates a misconfigured proxy.
+1. **Artifact Fuzzing:** Use `ffuf` to look for `.env`, `swagger.json`, `schema.graphql`, and `README.md`.
+2. **Investigate 403/401s:** Never ignore "Forbidden" errors. Use Gemini to generate bypass headers (e.g., `X-Custom-IP-Authorization`).
+3. **Blank 200s:** If a page returns a `200 OK` but the body is empty or < 50 bytes, flag it for manual inspection — it often indicates a misconfigured proxy.
 
+---
 
-# **🧪 Phase 3 — Live Hunt**
+# **🧪 Phase 3 — Live Hunt (Burp Co-Pilot)**
 
 > You browse manually. Gemini reads your traffic in real-time and finds patterns you would miss.
 
 ---
 
-### Session start checklist — do this before every hunt session
+## **7a. Session Context Template**
+
+> **How to use:** At the start of every Phase 3 session, open a fresh Gemini CLI session and paste this entire template as your first message. It sets the operating role, constraints, and structure for the entire hunt session. Save it to `~/hunts/target.com/session-context.md` so you can always copy it from there.
+
+```
+# ──────────────────────────────────────────────────
+# GemeniFlow Session Context — Authorized Assessment
+# Phase 3: Burp Co-Pilot | v2.0 | OmaRrAlaa101/gemeniflow
+# ──────────────────────────────────────────────────
+
+## Identity & Operating Constraints
+
+You are the GemeniFlow Burp Co-Pilot — an AI assistant for an
+authorized web application security assessment.
+You operate inside the GemeniFlow v2.0 methodology.
+
+Hard rules (never override):
+- Act strictly within written, confirmed scope (see GEMINI.md).
+- Evidence-first: never assert a vulnerability without observable
+  behavior — preferably Burp-derived (@burp list_proxy_http_history).
+- Separate all output into four lanes:
+    [FACT]       — directly observed from Burp/tool output
+    [HYPOTHESIS] — plausible, needs a test to confirm
+    [CONFIRMED]  — reproduced with a PoC request/response
+    [RETEST]     — was blocked/inconclusive, schedule for next session
+- Never speculate on impact without behavioral evidence.
+- Flag anything requiring human judgment before proceeding.
+- OOS = out of scope. Never touch it. Never proxy it.
+
+## Session Bootstrap (run once at session start)
+
+Step 1 — Memory sync
+Summarize relevant findings, confirmed bugs, open hypotheses,
+and retest items from prior sessions on this target.
+Pull from: ./targets/TARGET/notes/findings.md
+
+Step 2 — Scope confirmation
+State the current in-scope assets, excluded endpoints,
+and program platform (HackerOne / Bugcrowd / Intigriti).
+Source: GEMINI.md (auto-loaded from CWD).
+
+Step 3 — Burp surface review
+@burp list_proxy_http_history
+Map the visible application surface:
+  - Unique endpoints and HTTP methods
+  - Parameters (query, body, headers, cookies)
+  - Auth / session behavior (JWT alg, session token rotation)
+  - Role boundaries (admin vs user vs guest response diffs)
+  - State-changing actions (POST/PUT/PATCH/DELETE endpoints)
+
+Step 4 — Session plan
+Produce a prioritized testing plan. Rank by:
+  1. Untested high-value endpoints from recon
+  2. Open [HYPOTHESIS] items from prior sessions
+  3. [RETEST] items not yet confirmed
+  4. New endpoints surfaced since last session
+Output: numbered checklist, markable as sessions progress.
+
+## Tracking Structure (maintain throughout session)
+
+### Endpoints & Parameters
+| Endpoint | Method | Params | Auth Required | Notes |
+|----------|--------|--------|:-------------:|-------|
+|          |        |        |               |       |
+
+### Live Observations Log
+| # | Endpoint | Observed Behavior | Burp Item # | Lane |
+|---|----------|-------------------|:-----------:|------|
+|   |          |                   |             | FACT / HYPOTHESIS / CONFIRMED / RETEST |
+
+### Auth & Session State
+- JWT present: [ ] alg: [ ] expiry: [ ]
+- Session token rotates post-login: [ ]
+- Role boundaries tested: [ ]
+- CSRF tokens enforced on state-change: [ ]
+- OAuth state param validated: [ ]
+
+### Collaborator Interactions
+- URL: [paste your xyz.oastify.com here]
+- Interactions logged: [ ]
+
+### Finding Registry
+| ID | Title | Severity | Burp Item # | Lane | Next Action |
+|----|-------|----------|:-----------:|------|-------------|
+|    |       |          |             |      |             |
+
+## Phase-Specific Directives
+
+Phase 1 (Recon)
+Parse subdomain/JS/param output. Flag IDOR surfaces (integer IDs,
+UUIDs), unauthenticated /api/ routes, and stack misconfigs.
+
+Phase 1.5 (Port Scan)
+After naabu full-port scan: identify non-standard web services
+(Redis, Docker API, Jenkins). Map to known CVEs or default creds.
+
+Phase 2 (Fingerprint + Skill Builder)
+Cross-reference Tactical Payload Map with live Burp history.
+For each payload: find the best-matching endpoint, apply,
+report response diff vs baseline.
+
+Phase 2.5 (Artifacts & 4xx)
+Flag blank 200s (<50 bytes). Never skip 403/401s — generate
+header-flip bypass attempts (X-Custom-IP-Authorization, etc.).
+Feed discovered .env / swagger.json / schema.graphql to Gemini.
+
+Phase 3 (Live Hunt — THIS PHASE)
+Pull @burp history every 15 min. Flag:
+  - IDOR candidates (integer ID / UUID in path or body)
+  - POST requests missing CSRF tokens
+  - JWT with alg=none or alg=HS256
+  - Data leakage (other users' PII in responses)
+  - File upload endpoints (accepted MIME types)
+  - GraphQL introspection (__schema queries succeeding)
+Include Burp item # for every flag.
+
+Phase 4 (Exploitation)
+Only act on [CONFIRMED] signals. For every confirmed bug:
+  1. Generate minimum PoC (curl command from Burp item).
+  2. Write Nuclei v3 template for portfolio-wide scanning.
+  3. Classify: IDOR/BOLA, BFLA, JWT, GraphQL, SQLi, XXE,
+     Race Condition, or WAF Bypass.
+
+Phase 5 (Reporting)
+Before generating: /chat save [name]
+Report structure: Summary → Steps to Reproduce → Impact
+→ Remediation → CVSS 3.1 vector.
+Format: clean Markdown, HackerOne or Bugcrowd layout.
+
+## Session End — Required Outputs
+
+Before closing, produce:
+  1. Session summary — what was tested, what was found, what was skipped.
+  2. Updated finding registry — with lane changes (HYPOTHESIS → CONFIRMED, etc.).
+  3. Next session priorities — top 3 actionable items.
+  4. Save command: /chat save [target]_[date]_[feature]
+
+# ──────────────────────────────────────────────────
+# GemeniFlow v2.0 | github.com/OmaRrAlaa101/gemeniflow
+# ──────────────────────────────────────────────────
+```
+
+---
+
+## **7b. Session Start Checklist — do this before every hunt session**
 
 ```
 □ Terminal 1: cd ~/hunts/target.com && gemini
+□ Paste session-context.md as first message to set the co-pilot role
 □ Burp Suite: running, MCP tab shows "Server running on :9876"
 □ Browser: proxy configured to 127.0.0.1:8080
 □ GEMINI.md: updated with latest stack and notes
@@ -757,6 +919,10 @@ Expected response: the CLI calls the kali tool and returns `kali MCP is working`
 
 Expected: a list of recent Burp requests. If you get an error, Burp's MCP server may not be running.
 
+---
+
+## **7c. Browsing & Traffic Analysis**
+
 ### Step 1 — Use /plan before touching any complex feature
 
 Before testing auth flows, file uploads, payment logic, or anything stateful — always plan first:
@@ -774,6 +940,8 @@ Focus areas:
 Output: a numbered checklist I can follow top-to-bottom. Mark each item as I complete it."
 ```
 
+---
+
 ### Step 2 — Browse your target systematically
 
 Cover these areas in order. Do not skip:
@@ -785,6 +953,8 @@ Cover these areas in order. Do not skip:
 - Billing / subscription / coupon / promo codes
 - Admin or higher-privilege features (even if you cannot access them — note the endpoints)
 - API endpoints (watch Burp for /api/, /v1/, /v2/, /graphql)
+
+---
 
 ### Step 3 — Pull Burp history every 15-20 minutes
 
@@ -805,6 +975,8 @@ Run this regularly throughout your session:
 Include the Burp history item number for every suspicious finding."
 ```
 
+---
+
 ### Step 4 — Deep-dive on flagged requests
 
 When Gemini flags a specific item:
@@ -822,14 +994,15 @@ It is a POST to /api/v2/user/settings with a JSON body.
 Use @burp to send the modified requests and report the response code and body for each."
 ```
 
+---
+
 # **💣 Phase 4 — Exploitation**
 
 > You have a confirmed signal. These prompts turn a lead into a documented, reproducible exploit.
 
----
-
 > **Template Factory:** Once a vulnerability is confirmed manually, ask Gemini: "Based on this HTTP request/response, write a Nuclei v3 template to automate this check across my other 50 programs".
 
+---
 
 ### IDOR / BOLA Exploitation
 
@@ -845,6 +1018,8 @@ My user ID is 10482. The server returns 200 OK for any user_id I send.
 4. What is the minimum proof-of-concept needed for a valid HackerOne P2 submission?
 5. Write the exact curl command I will include in the report."
 ```
+
+---
 
 ### JWT Manipulation
 
@@ -864,6 +1039,8 @@ The token payload is: [paste base64 payload here]
 5. Use @kali to test each variant against the /api/v1/me endpoint.
    Report which, if any, returns a valid 200 response."
 ```
+
+---
 
 ### GraphQL Introspection & Injection
 
@@ -886,6 +1063,8 @@ The token payload is: [paste base64 payload here]
    Does the server rate-limit batch operations?"
 ```
 
+---
+
 ### SQL Injection
 
 ```
@@ -900,6 +1079,8 @@ The token payload is: [paste base64 payload here]
    (for time-based blind), and any data returned.
 5. If WAF blocks the payloads, generate URL-encoded and JSON-escaped variants."
 ```
+
+---
 
 ### XXE / File Upload
 
@@ -917,6 +1098,8 @@ The Content-Type is application/xml.
 5. Generate the minimum PoC for a bounty report — what is the simplest payload that proves impact?"
 ```
 
+---
+
 ### Race Condition
 
 ```
@@ -931,6 +1114,8 @@ I suspect a TOCTOU race condition.
 4. What is the business impact for the report?
    (financial loss, unlimited credits, inventory manipulation, etc.)"
 ```
+
+---
 
 ### WAF Bypass (Cloudflare / Akamai)
 
@@ -952,6 +1137,8 @@ Think step-by-step:
 5. If all 5 are blocked: what specific Cloudflare bypass technique was reported
    on HackerOne or Intigriti for XSS in 2024-2025?"
 ```
+
+---
 
 # **📝 Phase 5 — Report**
 
@@ -978,6 +1165,8 @@ Then ask:
 ```
 "Summarize what we found yesterday on api.target.com and where we left off."
 ```
+
+---
 
 ### Step 2 — Generate the report
 
@@ -1024,21 +1213,23 @@ Use the same vulnerability details above but restructure for Bugcrowd's format:
 Bugcrowd priority rating: P2 (Severity 2)."
 ```
 
-# 🔴 Phase 6 — Continuous Monitoring (Deep Implementation)
+---
+
+# **🔴 Phase 6 — Continuous Monitoring (Deep Implementation)**
 
 This phase turns your hunting from **one-time recon → continuous asset discovery pipeline**.
 
 You are building a system that answers daily:
 
-👉 *“What changed since yesterday?”*
+👉 *"What changed since yesterday?"*
 
 ---
 
-# 1️⃣ Baseline — Create a “Yesterday Snapshot”
+## 1️⃣ Baseline — Create a "Yesterday Snapshot"
 
 This is your **ground truth**. Everything depends on it.
 
-## 📁 Step 1 — Create monitoring folder (already in your structure)
+### 📁 Step 1 — Create monitoring folder (already in your structure)
 
 You already defined:
 
@@ -1050,9 +1241,7 @@ You already defined:
 
 ---
 
-## 📌 Step 2 — Generate baseline subdomains
-
-Run:
+### 📌 Step 2 — Generate baseline subdomains
 
 ```bash
 cd ~/hunts/target.com
@@ -1064,7 +1253,7 @@ subfinder -d target.com -silent \
 
 ---
 
-## 📌 Step 3 — Resolve subdomains → IPs
+### 📌 Step 3 — Resolve subdomains → IPs
 
 You need IP tracking because:
 
@@ -1079,7 +1268,7 @@ cat ./targets/target.com/monitoring/baseline_subs.txt \
 
 ---
 
-## 📌 Step 4 — Normalize baseline (IMPORTANT)
+### 📌 Step 4 — Normalize baseline (IMPORTANT)
 
 Combine subs + IPs into one comparable snapshot:
 
@@ -1092,13 +1281,11 @@ cat ./targets/target.com/monitoring/baseline_subs.txt \
 
 ---
 
-## 📌 Step 5 — Save timestamp
+### 📌 Step 5 — Save timestamp
 
 ```bash
 date > ./targets/target.com/monitoring/last_run.txt
 ```
-
----
 
 ✔️ At this point:
 
@@ -1107,21 +1294,17 @@ date > ./targets/target.com/monitoring/last_run.txt
 
 ---
 
-# 2️⃣ Daily Delta — Automated Discovery
+## 2️⃣ Daily Delta — Automated Discovery
 
 Now you build a script that runs **every day automatically**.
 
----
-
-## 📁 Step 1 — Create delta script
+### 📁 Step 1 — Create delta script
 
 ```bash
 nano ~/hunts/target.com/delta.sh
 ```
 
----
-
-## 🧠 FULL SCRIPT (DO NOT SKIP ANY LINE)
+### 🧠 FULL SCRIPT (DO NOT SKIP ANY LINE)
 
 ```bash
 #!/bin/bash
@@ -1207,9 +1390,7 @@ date > $BASE_DIR/last_run.txt
 echo "[✓] Delta scan complete"
 ```
 
----
-
-## 📌 Step 2 — Make script executable
+### 📌 Step 2 — Make script executable
 
 ```bash
 chmod +x ~/hunts/target.com/delta.sh
@@ -1217,21 +1398,15 @@ chmod +x ~/hunts/target.com/delta.sh
 
 ---
 
-# 3️⃣ Cron Job — Automate It Daily
+## 3️⃣ Cron Job — Automate It Daily
 
-Now you make it run without touching it.
-
----
-
-## 📌 Step 1 — Open cron
+### 📌 Step 1 — Open cron
 
 ```bash
 crontab -e
 ```
 
----
-
-## 📌 Step 2 — Add this line
+### 📌 Step 2 — Add this line
 
 Run every day at 9 AM:
 
@@ -1239,29 +1414,23 @@ Run every day at 9 AM:
 0 9 * * * /home/kali/hunts/target.com/delta.sh >> /home/kali/hunts/target.com/monitoring.log 2>&1
 ```
 
----
-
-## 📌 Step 3 — Verify cron is active
+### 📌 Step 3 — Verify cron is active
 
 ```bash
 crontab -l
 ```
 
----
-
 ✔️ Now your system runs daily automatically.
 
 ---
 
-# 4️⃣ Rapid Response — THIS IS WHERE YOU WIN BUGS
+## 4️⃣ Rapid Response — THIS IS WHERE YOU WIN BUGS
 
 This is the **most important part**.
 
 When `delta.txt` is NOT empty → act immediately.
 
----
-
-## 🔥 Step 1 — Inspect new assets
+### 🔥 Step 1 — Inspect new assets
 
 ```bash
 cat ./targets/target.com/monitoring/delta.txt
@@ -1275,7 +1444,7 @@ Look for:
 
 ---
 
-## 🔥 Step 2 — Immediate Phase 1.5 (Full Port Scan)
+### 🔥 Step 2 — Immediate Phase 1.5 (Full Port Scan)
 
 If not already triggered:
 
@@ -1285,7 +1454,7 @@ cat new_domains.txt | naabu -p - -silent -o full_scan.txt
 
 ---
 
-## 🔥 Step 3 — Service detection
+### 🔥 Step 3 — Service detection
 
 ```bash
 cat full_scan.txt \
@@ -1295,7 +1464,7 @@ cat full_scan.txt \
 
 ---
 
-## 🔥 Step 4 — Feed to Gemini
+### 🔥 Step 4 — Feed to Gemini
 
 Inside CLI:
 
@@ -1317,7 +1486,7 @@ Tasks:
 
 ---
 
-## 🔥 Step 5 — Manual attack immediately
+### 🔥 Step 5 — Manual attack immediately
 
 Focus on:
 
@@ -1329,7 +1498,7 @@ Focus on:
 
 ---
 
-# ⚠️ Why This Works (Critical Insight)
+## ⚠️ Why This Works (Critical Insight)
 
 New assets are:
 
@@ -1341,15 +1510,13 @@ New assets are:
 
 ---
 
-# 💡 Pro Tips (Real Operator Edge)
+## 💡 Pro Tips (Real Operator Edge)
 
 ### 1. Run delta twice daily (not once)
 
 ```bash
 0 9,21 * * * ...
 ```
-
----
 
 ### 2. Alert yourself instantly
 
@@ -1361,8 +1528,6 @@ if [ "$NEW_COUNT" -gt 0 ]; then
     -d "New assets found on $DOMAIN"
 fi
 ```
-
----
 
 ### 3. Track ASN (advanced)
 
@@ -1377,32 +1542,28 @@ Then pivot using:
 * `amass intel`
 * `asnmap`
 
----
-
 ### 4. NEVER ignore 1 new subdomain
 
 👉 One subdomain = one potential bounty
 
 ---
 
-# 🧠 Mental Model (Remember This)
+## 🧠 Mental Model (Remember This)
 
 ```
-Baseline = Yesterday’s world
-Delta    = Today’s changes
+Baseline = Yesterday's world
+Delta    = Today's changes
 Bugs     = Found in the difference
 ```
 
+You can upgrade this into:
+
+* Multi-target automation (monitor 20+ programs)
+* Telegram alert system
+* Auto-Nuclei on new assets
+* Full recon + delta fusion pipeline
+
 ---
-
-you  can upgrade this into:
-
-*  multi-target automation (monitor 20+ programs)
-*  Telegram alert system
-*  auto-Nuclei on new assets
-*  full recon + delta fusion pipeline
-
-
 
 # **🧠 Pro Habits**
 
@@ -1411,6 +1572,7 @@ you  can upgrade this into:
 | Save every session | `/chat save target_session_1` | Resume next day with full context |
 | Resume a session | `/chat resume target_session_1` | Ask: "What did we find yesterday?" |
 | Check MCP at session start | `/mcp` | Confirm @kali and @burp are connected before hunting |
+| Paste session context template | First message in every Phase 3 session | Sets co-pilot role, constraints, and tracking structure |
 | Never yolo on live programs | Avoid `--approval-mode yolo` | One OOS request = program ban |
 | Scope file per target folder | `cd ~/hunts/target.com && gemini` | GEMINI.md is auto-read from CWD |
 | Pull Burp history often | Every 15-20 min during browse | You miss patterns manually — Gemini does not |
@@ -1418,6 +1580,7 @@ you  can upgrade this into:
 | Store notes as you go | `./targets/$DOMAIN/notes/findings.md` | Yesterday's dead endpoint = today's bug after a code push |
 | Ask Skill Builder before WAF bypass | Before manual attempts | Public bypasses already documented — start there |
 | Update GEMINI.md as you learn | After fingerprinting | Gemini uses the stack info to give better targeted prompts |
+| Use evidence lanes every session | [FACT] / [HYPOTHESIS] / [CONFIRMED] / [RETEST] | Prevents false reporting and keeps sessions structured |
 
 ---
 
@@ -1537,19 +1700,20 @@ echo 'nvm use default --silent' >> ~/.zshrc
 
 ---
 
-## Quick Reference — Files You Must Create
+# **📋 Quick Reference — Files You Must Create**
 
 | File | Location | Created when | Purpose |
 |---|---|---|---|
 | `settings.json` | `~/.gemini/settings.json` | Once | Wires @kali and @burp to CLI |
 | `recon.sh` | `~/hunts/recon.sh` | Once | Full recon pipeline |
 | `GEMINI.md` | `~/hunts/TARGET/GEMINI.md` | Per target | Scope guard, role, stack |
-| `findings.md` | `~/hunts/TARGET/targets/TARGET/notes/` | Per target | Your manual notes |
+| `session-context.md` | `~/hunts/TARGET/session-context.md` | Per target | Phase 3 co-pilot bootstrap template |
+| `findings.md` | `~/hunts/TARGET/targets/TARGET/notes/` | Per target | Your manual notes and finding registry |
 | Skill Builder Gem | `gemini.google.com → Gems` | Once | Stack-to-vuln research brain |
 
 ---
 
-## Quick Reference — CLI Commands
+# **📋 Quick Reference — CLI Commands**
 
 | Command | What it does |
 |---|---|
@@ -1566,9 +1730,18 @@ echo 'nvm use default --silent' >> ~/.zshrc
 
 ---
 
+# **📋 Quick Reference — Evidence Lanes**
+
+| Lane | Meaning | When to use |
+|---|---|---|
+| `[FACT]` | Directly observed from Burp or tool output | Something you can see in a response right now |
+| `[HYPOTHESIS]` | Plausible, not yet tested | A pattern that suggests a bug but needs a confirming request |
+| `[CONFIRMED]` | Reproduced with a PoC request/response pair | You have a curl command that proves it |
+| `[RETEST]` | Blocked or inconclusive — schedule for next session | WAF blocked it, timing was off, endpoint was down |
+
 ---
 
-## Workflow at a Glance
+# **Workflow at a Glance**
 
 ```
 Phase 0       One-time setup (CLI, MCP servers, Skill Builder)
@@ -1581,7 +1754,9 @@ Phase 2       Fingerprint (httpx, whatweb) + Skill Builder Tactical Payload Map
     ↓
 Phase 2.5     AI-App Artifact Detection (ffuf) + 4xx/Blank-200 Fuzzing
     ↓
-Phase 3       Live Hunt — browse manually, Gemini reads Burp traffic every 15-20 min
+Phase 3       Live Hunt — paste session-context.md → browse manually →
+              Gemini reads Burp traffic every 15-20 min →
+              track all findings in [FACT/HYPOTHESIS/CONFIRMED/RETEST] lanes
     ↓
 Phase 4       Exploitation — IDOR, JWT, GraphQL, SQLi, XXE, Race, WAF bypass
               + Nuclei Template Factory (convert every finding to a template)
@@ -1593,7 +1768,6 @@ Phase 6       Continuous Monitoring — delta script 2x daily, forever
 ```
 
 ---
-
 
 ## 🚀 The GemeniFlow v2.0 Pipeline
 
@@ -1610,6 +1784,8 @@ graph TD
     P6 -->|New Asset Found| P15
 ```
 
+---
+
 ### 🛠️ Phase 0: One-Time Setup
 * **CLI**: Install Gemini CLI via `npm`.
 * **MCP**: Install `mcp-server-kali` via `pip`.
@@ -1621,7 +1797,7 @@ graph TD
 * **Automation**: Run `recon.sh` (`subfinder` → `amass` → `httpx` → `katana` → `gau`).
 * **Intel**: Manually run dorks across Google, Bing, GitHub, Gist, GitLab, VirusTotal, and URLScan.
 * **AI Sort**: Feed all raw data to Gemini for high-signal prioritization.
-* **Targeting**: Run `nuclei` only on Gemini’s top-ranked picks to minimize noise.
+* **Targeting**: Run `nuclei` only on Gemini's top-ranked picks to minimize noise.
 
 ### ⚡ Phase 1.5: Full Port Scan (The "Orwa" Edge)
 * **The "All-Port" Rule**: Run `naabu -p -` against every live host.
@@ -1641,9 +1817,12 @@ graph TD
 * **Extraction**: Feed discovered files to Gemini for credential and path extraction.
 
 ### 🎯 Phase 3: Live Hunt (Burp Co-Pilot)
+* **Session Init**: Paste `session-context.md` as first CLI message — sets role, hard rules, tracking structure, and session plan.
+* **Evidence Lanes**: All findings must be classified as `[FACT]`, `[HYPOTHESIS]`, `[CONFIRMED]`, or `[RETEST]` — never report without a lane.
 * **Systematic Browsing**: Systematic coverage of Auth, Profile, Billing, and API flows.
 * **Traffic Analysis**: Pull Burp history every 15 minutes.
 * **AI Flags**: Gemini identifies IDOR, JWT flaws, and GraphQL introspection in real-time.
+* **Session End**: Always produce session summary, updated finding registry, next priorities, and `/chat save`.
 
 ### 💥 Phase 4: Exploitation & Template Factory
 * **Agentic Execution**: Interactive prompts for IDOR, SQLi, XXE, Race Conditions, and WAF Bypasses.
@@ -1666,5 +1845,4 @@ graph TD
 ---
 
 *GemeniFlow — Gemini CLI Bug Bounty Methodology*
-*Kali Linux 2026.1  ·  Gemini CLI  ·  github.com/OmaRrAlaa101/gemeniflow*
-
+*Kali Linux 2026.1 · Gemini CLI · github.com/OmaRrAlaa101/gemeniflow*
