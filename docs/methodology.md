@@ -448,87 +448,689 @@ nano ~/hunts/recon.sh
 Paste this entire script:
 
 ```bash
-#!/bin/bash
-# GemeniFlow Recon Script — run from ~/hunts/target.com/
-# Usage: ./recon.sh target.com
+#!/usr/bin/env bash
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║           GemeniFlow Recon Script — Complete Edition            ║
+# ║         12-Phase Automated Recon Pipeline by OmaRrAlaa101       ║
+# ╚══════════════════════════════════════════════════════════════════╝
+# Usage: ./recon.sh <domain> [user-agent-suffix]
+# Example: ./recon.sh profitwell.com YWH-OmarHandle
 
-set -e
+set -euo pipefail
 
-DOMAIN=$1
+# ─── CONFIG ────────────────────────────────────────────────────────
+DOMAIN="${1:-}"
+UA_SUFFIX="${2:-YWH-YourHandle}"
+UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 ${UA_SUFFIX}"
 
-if [ -z "$DOMAIN" ]; then
-  echo "Usage: $0 target.com"
-  exit 1
-fi
+WORDLIST_DIR="${WORDLIST_DIR:-$HOME/wordlists}"
+SECLIST="$WORDLIST_DIR/SecLists/Discovery/Web-Content"
+PARAMS_WL="$WORDLIST_DIR/SecLists/Discovery/Web-Content/burp-parameter-names.txt"
+NUCLEI_TEMPLATES="$HOME/nuclei-templates"
 
-# Check required tools
-MISSING=0
-for tool in subfinder assetfinder amass httpx katana gau; do
-  if ! command -v $tool &>/dev/null; then
-    echo "✗ MISSING: $tool — install it before running recon"
-    MISSING=1
-  fi
-done
-[ $MISSING -eq 1 ] && exit 1
+BASE="./targets/$DOMAIN"
+RAW="$BASE/raw"
+PROC="$BASE/processed"
+JS_DIR="$BASE/js"
+SHOTS="$BASE/screenshots"
+NOTES="$BASE/notes"
+REPORT="$BASE/REPORT.md"
 
-mkdir -p ./targets/$DOMAIN/{raw,processed,notes}
+THREADS=50
+KATANA_DEPTH=3
+AMASS_TIMEOUT=300
 
-echo ""
-echo "[*] ═══════════════════════════════════"
-echo "[*]  Target: $DOMAIN"
-echo "[*] ═══════════════════════════════════"
-echo ""
+# ─── COLORS ────────────────────────────────────────────────────────
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+RESET='\033[0m'
 
-echo "[*] Subfinder..."
-subfinder -d $DOMAIN -silent > ./targets/$DOMAIN/raw/subs.txt
+# ─── HELPERS ───────────────────────────────────────────────────────
+info()    { echo -e "${CYAN}[*]${RESET} $*"; }
+success() { echo -e "${GREEN}[+]${RESET} $*"; }
+warn()    { echo -e "${YELLOW}[!]${RESET} $*"; }
+err()     { echo -e "${RED}[✗]${RESET} $*"; }
+banner()  { echo -e "\n${BOLD}${CYAN}$*${RESET}\n"; }
 
-echo "[*] Assetfinder..."
-assetfinder --subs-only $DOMAIN >> ./targets/$DOMAIN/raw/subs.txt
+count_lines() { [ -f "$1" ] && wc -l < "$1" || echo 0; }
 
-echo "[*] Amass (passive, 5 min timeout)..."
-timeout 300 amass enum -passive -d $DOMAIN >> ./targets/$DOMAIN/raw/subs.txt || true
+phase() {
+    local num="$1"
+    local name="$2"
+    echo ""
+    echo -e "${BOLD}${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+    echo -e "${BOLD}${YELLOW}  Phase $num — $name${RESET}"
+    echo -e "${BOLD}${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+}
 
-echo "[*] Deduplicating..."
-sort -u ./targets/$DOMAIN/raw/subs.txt \
-  -o ./targets/$DOMAIN/processed/unique_subs.txt
+require() {
+    local missing=0
+    for tool in "$@"; do
+        if ! command -v "$tool" &>/dev/null; then
+            err "MISSING: $tool"
+            missing=1
+        fi
+    done
+    return $missing
+}
 
-echo "[*] Live host check (httpx)..."
-cat ./targets/$DOMAIN/processed/unique_subs.txt \
-  | httpx -silent \
-          -mc 200,301,302,403,401 \
-          -title \
-          -tech-detect \
-          -status-code \
-          -follow-redirects \
-  > ./targets/$DOMAIN/processed/live.txt
+# ─── PREFLIGHT ─────────────────────────────────────────────────────
+preflight() {
+    if [ -z "$DOMAIN" ]; then
+        echo "Usage: $0 <domain> [ua-suffix]"
+        exit 1
+    fi
 
-echo "[*] Endpoint crawl (katana, depth 3)..."
-cat ./targets/$DOMAIN/processed/live.txt \
-  | awk '{print $1}' \
-  | katana -silent -d 3 -jc \
-  > ./targets/$DOMAIN/processed/endpoints.txt
+    banner "╔══════════════════════════════════════════════╗
+║       GemeniFlow Recon — Complete Edition    ║
+╚══════════════════════════════════════════════╝"
 
-echo "[*] Historical URLs (gau)..."
-cat ./targets/$DOMAIN/processed/unique_subs.txt \
-  | gau --blacklist png,jpg,gif,svg,woff,woff2,ttf,css,ico \
-  >> ./targets/$DOMAIN/processed/endpoints.txt
+    info "Target   : $DOMAIN"
+    info "UA Suffix: $UA_SUFFIX"
+    info "Threads  : $THREADS"
+    echo ""
 
-sort -u ./targets/$DOMAIN/processed/endpoints.txt \
-  -o ./targets/$DOMAIN/processed/endpoints_unique.txt
+    info "Checking required tools..."
+    REQUIRED_TOOLS=(
+        subfinder assetfinder amass
+        httpx katana gau waybackurls
+        nmap ffuf nuclei
+        curl wget grep sort awk
+    )
+    OPTIONAL_TOOLS=(arjun aquatone gowitness)
 
-echo ""
-echo "[+] ═══════════════════════════════════"
-echo "[+]  Done — $DOMAIN"
-echo "[+] ═══════════════════════════════════"
-echo "[+]  Raw subdomains:    $(wc -l < ./targets/$DOMAIN/raw/subs.txt)"
-echo "[+]  Unique subdomains: $(wc -l < ./targets/$DOMAIN/processed/unique_subs.txt)"
-echo "[+]  Live hosts:        $(wc -l < ./targets/$DOMAIN/processed/live.txt)"
-echo "[+]  Unique endpoints:  $(wc -l < ./targets/$DOMAIN/processed/endpoints_unique.txt)"
-echo "[+] ═══════════════════════════════════"
-echo ""
-echo "[*] Output files:"
-echo "    ./targets/$DOMAIN/processed/live.txt"
-echo "    ./targets/$DOMAIN/processed/endpoints_unique.txt"
+    local missing=0
+    for tool in "${REQUIRED_TOOLS[@]}"; do
+        if command -v "$tool" &>/dev/null; then
+            success "$tool"
+        else
+            err "$tool — REQUIRED, install before running"
+            missing=1
+        fi
+    done
+
+    echo ""
+    info "Optional tools (skipped if missing):"
+    for tool in "${OPTIONAL_TOOLS[@]}"; do
+        if command -v "$tool" &>/dev/null; then
+            success "$tool"
+        else
+            warn "$tool — optional, will skip"
+        fi
+    done
+
+    [ $missing -eq 1 ] && { err "Install missing required tools and retry."; exit 1; }
+
+    mkdir -p "$RAW" "$PROC" "$JS_DIR" "$SHOTS" "$NOTES"
+    echo ""
+    success "Output directory: $BASE"
+}
+
+# ──────────────────────────────────────────────────────────────────
+# PHASE 1 — Subdomain Enumeration
+# ──────────────────────────────────────────────────────────────────
+phase1_subdomains() {
+    phase 1 "Subdomain Enumeration"
+
+    info "subfinder..."
+    subfinder -d "$DOMAIN" -silent 2>/dev/null \
+        > "$RAW/subs_subfinder.txt" || true
+
+    info "assetfinder..."
+    assetfinder --subs-only "$DOMAIN" 2>/dev/null \
+        > "$RAW/subs_assetfinder.txt" || true
+
+    info "amass (passive, ${AMASS_TIMEOUT}s timeout)..."
+    timeout "$AMASS_TIMEOUT" \
+        amass enum -passive -d "$DOMAIN" 2>/dev/null \
+        > "$RAW/subs_amass.txt" || true
+
+    info "Deduplicating subdomains..."
+    cat "$RAW"/subs_*.txt 2>/dev/null \
+        | grep -E "^[a-zA-Z0-9._-]+\.$DOMAIN$" \
+        | sort -u \
+        > "$PROC/unique_subs.txt"
+
+    success "Unique subdomains: $(count_lines "$PROC/unique_subs.txt")"
+}
+
+# ──────────────────────────────────────────────────────────────────
+# PHASE 2 — Live Host Detection
+# ──────────────────────────────────────────────────────────────────
+phase2_live_hosts() {
+    phase 2 "Live Host Detection"
+
+    info "httpx — probing live hosts..."
+    cat "$PROC/unique_subs.txt" \
+        | httpx -silent \
+                -H "User-Agent: $UA" \
+                -mc 200,301,302,403,401,404 \
+                -title \
+                -tech-detect \
+                -status-code \
+                -follow-redirects \
+                -threads "$THREADS" \
+        > "$PROC/live.txt" 2>/dev/null || true
+
+    # Extract clean URLs only
+    awk '{print $1}' "$PROC/live.txt" | sort -u > "$PROC/live_urls.txt"
+
+    success "Live hosts: $(count_lines "$PROC/live_urls.txt")"
+}
+
+# ──────────────────────────────────────────────────────────────────
+# PHASE 3 — Port Scanning
+# ──────────────────────────────────────────────────────────────────
+phase3_ports() {
+    phase 3 "Full Port Scan (Orwa Methodology — never skip)"
+
+    info "Resolving IPs for live hosts..."
+    while read -r url; do
+        host=$(echo "$url" | sed 's|https\?://||' | cut -d'/' -f1 | cut -d':' -f1)
+        dig +short "$host" 2>/dev/null | grep -E '^[0-9]+\.' || true
+    done < "$PROC/live_urls.txt" | sort -u > "$RAW/ips.txt"
+
+    local ip_count
+    ip_count=$(count_lines "$RAW/ips.txt")
+
+    if [ "$ip_count" -eq 0 ]; then
+        warn "No IPs resolved, skipping port scan."
+        return
+    fi
+
+    info "Full port scan on $ip_count IPs (this may take a while)..."
+    nmap -iL "$RAW/ips.txt" \
+         -p- \
+         --open \
+         -T3 \
+         --min-rate 1000 \
+         -oN "$PROC/ports.txt" \
+         -oG "$PROC/ports_grepable.txt" \
+         2>/dev/null || true
+
+    # Extract non-standard open ports
+    grep "open" "$PROC/ports.txt" \
+        | grep -v "80/tcp\|443/tcp" \
+        > "$PROC/unusual_ports.txt" 2>/dev/null || true
+
+    success "Port scan complete — unusual ports: $(count_lines "$PROC/unusual_ports.txt")"
+}
+
+# ──────────────────────────────────────────────────────────────────
+# PHASE 4 — Endpoint Crawl + Historical URLs
+# ──────────────────────────────────────────────────────────────────
+phase4_endpoints() {
+    phase 4 "Endpoint Crawl + Historical URLs"
+
+    info "katana (depth $KATANA_DEPTH, JS parsing enabled)..."
+    cat "$PROC/live_urls.txt" \
+        | katana \
+            -silent \
+            -d "$KATANA_DEPTH" \
+            -jc \
+            -H "User-Agent: $UA" \
+            -aff \
+        > "$RAW/katana.txt" 2>/dev/null || true
+
+    info "gau (historical URLs)..."
+    cat "$PROC/unique_subs.txt" \
+        | gau \
+            --blacklist png,jpg,gif,svg,woff,woff2,ttf,css,ico,mp4,mp3 \
+        > "$RAW/gau.txt" 2>/dev/null || true
+
+    info "waybackurls..."
+    cat "$PROC/unique_subs.txt" \
+        | waybackurls \
+        > "$RAW/wayback.txt" 2>/dev/null || true
+
+    info "Merging and deduplicating all endpoints..."
+    cat "$RAW/katana.txt" "$RAW/gau.txt" "$RAW/wayback.txt" 2>/dev/null \
+        | sort -u \
+        > "$PROC/endpoints_unique.txt"
+
+    # Separate by file type interest
+    grep -E "\.(json|xml|yaml|yml|env|config|bak|sql|log|backup|txt|conf|ini|php|asp|jsp)$" \
+        "$PROC/endpoints_unique.txt" \
+        > "$PROC/juicy_files.txt" 2>/dev/null || true
+
+    grep "?" "$PROC/endpoints_unique.txt" | sort -u \
+        > "$PROC/parameterized_urls.txt" 2>/dev/null || true
+
+    success "Unique endpoints: $(count_lines "$PROC/endpoints_unique.txt")"
+    success "Juicy file types: $(count_lines "$PROC/juicy_files.txt")"
+    success "Parameterized URLs: $(count_lines "$PROC/parameterized_urls.txt")"
+}
+
+# ──────────────────────────────────────────────────────────────────
+# PHASE 5 — JavaScript Analysis
+# ──────────────────────────────────────────────────────────────────
+phase5_js_analysis() {
+    phase 5 "JavaScript Analysis"
+
+    info "Extracting JS file URLs..."
+    grep -E "\.js(\?|$)" "$PROC/endpoints_unique.txt" \
+        | grep -v "\.json" \
+        | sort -u \
+        > "$RAW/js_urls.txt" 2>/dev/null || true
+
+    local js_count
+    js_count=$(count_lines "$RAW/js_urls.txt")
+    info "Found $js_count JS files — downloading..."
+
+    if [ "$js_count" -gt 0 ]; then
+        wget \
+            --user-agent="$UA" \
+            --directory-prefix="$JS_DIR" \
+            --no-clobber \
+            --quiet \
+            --input-file="$RAW/js_urls.txt" \
+            2>/dev/null || true
+    fi
+
+    info "Scanning for secrets in JS files..."
+    # API keys, tokens, secrets
+    grep -rEo \
+        "(api[_-]?key|apikey|api[_-]?secret|access[_-]?token|auth[_-]?token|secret[_-]?key|client[_-]?secret|private[_-]?key|password|passwd|Authorization|Bearer)['\"\s]*[:=]['\"\s]*[A-Za-z0-9_\-\.]{10,}" \
+        "$JS_DIR/" 2>/dev/null \
+        | sort -u \
+        > "$PROC/js_secrets.txt" || true
+
+    # AWS keys
+    grep -rEo "(AKIA[0-9A-Z]{16})" \
+        "$JS_DIR/" 2>/dev/null \
+        >> "$PROC/js_secrets.txt" || true
+
+    # Internal API endpoints hidden in JS
+    grep -rEo "(/api/[a-zA-Z0-9/_\-\.]+)" \
+        "$JS_DIR/" 2>/dev/null \
+        | sort -u \
+        > "$PROC/js_endpoints.txt" || true
+
+    # Subdomains found in JS
+    grep -rEo "[a-zA-Z0-9._-]+\.$DOMAIN" \
+        "$JS_DIR/" 2>/dev/null \
+        | sort -u \
+        > "$PROC/js_subdomains.txt" || true
+
+    # Source map files (often contain original source)
+    grep -rE "\.map$" "$RAW/js_urls.txt" 2>/dev/null \
+        > "$PROC/sourcemaps.txt" || true
+
+    success "Potential secrets found: $(count_lines "$PROC/js_secrets.txt")"
+    success "Hidden JS endpoints: $(count_lines "$PROC/js_endpoints.txt")"
+    success "JS-discovered subdomains: $(count_lines "$PROC/js_subdomains.txt")"
+
+    if [ -s "$PROC/js_secrets.txt" ]; then
+        warn "⚠  POSSIBLE SECRETS FOUND — review $PROC/js_secrets.txt immediately"
+    fi
+}
+
+# ──────────────────────────────────────────────────────────────────
+# PHASE 6 — Directory & Path Bruteforce
+# ──────────────────────────────────────────────────────────────────
+phase6_dirbrute() {
+    phase 6 "Directory & Path Bruteforce (ffuf)"
+
+    if [ ! -f "$SECLIST/raft-medium-directories.txt" ]; then
+        warn "SecLists not found at $SECLIST — skipping directory bruteforce."
+        warn "Install: git clone https://github.com/danielmiessler/SecLists ~/wordlists/SecLists"
+        return
+    fi
+
+    mkdir -p "$PROC/ffuf"
+
+    while read -r url; do
+        local host
+        host=$(echo "$url" | sed 's|https\?://||' | tr '/.' '__')
+
+        info "ffuf → $url"
+        ffuf \
+            -u "$url/FUZZ" \
+            -w "$SECLIST/raft-medium-directories.txt" \
+            -H "User-Agent: $UA" \
+            -mc 200,201,204,301,302,307,401,403 \
+            -t "$THREADS" \
+            -timeout 10 \
+            -of json \
+            -o "$PROC/ffuf/${host}.json" \
+            -s \
+            2>/dev/null || true
+
+    done < "$PROC/live_urls.txt"
+
+    # Merge all ffuf results into one readable file
+    for f in "$PROC/ffuf/"*.json; do
+        [ -f "$f" ] || continue
+        python3 -c "
+import json, sys
+try:
+    data = json.load(open('$f'))
+    for r in data.get('results', []):
+        print(f\"{r['status']} {r['length']:>8}b  {r['url']}\")
+except: pass
+" 2>/dev/null >> "$PROC/ffuf_merged.txt" || true
+    done
+
+    sort -u "$PROC/ffuf_merged.txt" -o "$PROC/ffuf_merged.txt" 2>/dev/null || true
+    success "Directory brute results: $(count_lines "$PROC/ffuf_merged.txt") paths"
+}
+
+# ──────────────────────────────────────────────────────────────────
+# PHASE 7 — Parameter Discovery
+# ──────────────────────────────────────────────────────────────────
+phase7_params() {
+    phase 7 "Parameter Discovery"
+
+    if ! command -v arjun &>/dev/null; then
+        warn "arjun not installed — skipping. Install: pip3 install arjun"
+        return
+    fi
+
+    if [ ! -f "$PARAMS_WL" ]; then
+        warn "Params wordlist not found at $PARAMS_WL — skipping."
+        return
+    fi
+
+    info "Running arjun on parameterized URLs..."
+    # Limit to top 50 to avoid hammering the server
+    head -50 "$PROC/parameterized_urls.txt" > "$RAW/arjun_targets.txt" 2>/dev/null || true
+
+    if [ ! -s "$RAW/arjun_targets.txt" ]; then
+        warn "No parameterized URLs found — skipping arjun."
+        return
+    fi
+
+    arjun \
+        --stable \
+        -i "$RAW/arjun_targets.txt" \
+        -oJ "$PROC/params_arjun.json" \
+        --headers "User-Agent: $UA" \
+        2>/dev/null || true
+
+    success "Arjun parameter discovery complete — see $PROC/params_arjun.json"
+}
+
+# ──────────────────────────────────────────────────────────────────
+# PHASE 8 — Subdomain Takeover Check
+# ──────────────────────────────────────────────────────────────────
+phase8_takeover() {
+    phase 8 "Subdomain Takeover Check"
+
+    if [ ! -d "$NUCLEI_TEMPLATES/http/takeovers" ]; then
+        warn "Nuclei takeover templates not found — run: nuclei -update-templates"
+        return
+    fi
+
+    info "Running nuclei takeover templates..."
+    cat "$PROC/live_urls.txt" \
+        | nuclei \
+            -t "$NUCLEI_TEMPLATES/http/takeovers/" \
+            -H "User-Agent: $UA" \
+            -silent \
+            -o "$PROC/takeovers.txt" \
+            2>/dev/null || true
+
+    # Also check raw CNAME fingerprints manually
+    info "Checking for dangling CNAMEs..."
+    while read -r sub; do
+        local cname
+        cname=$(dig CNAME "$sub" +short 2>/dev/null | head -1)
+        if [ -n "$cname" ]; then
+            # Check if CNAME target resolves
+            if ! dig A "$cname" +short 2>/dev/null | grep -qE '^[0-9]'; then
+                echo "[DANGLING CNAME] $sub → $cname" >> "$PROC/takeovers.txt"
+                warn "Dangling CNAME: $sub → $cname"
+            fi
+        fi
+    done < "$PROC/unique_subs.txt"
+
+    success "Takeover candidates: $(count_lines "$PROC/takeovers.txt")"
+    [ -s "$PROC/takeovers.txt" ] && warn "⚠  CHECK TAKEOVER FILE — potential findings!"
+}
+
+# ──────────────────────────────────────────────────────────────────
+# PHASE 9 — Nuclei Vulnerability Scan
+# ──────────────────────────────────────────────────────────────────
+phase9_nuclei() {
+    phase 9 "Nuclei Vulnerability Scan"
+
+    if ! command -v nuclei &>/dev/null; then
+        warn "nuclei not installed — skipping."
+        return
+    fi
+
+    info "Running nuclei (exposures, misconfigs, technologies)..."
+    cat "$PROC/live_urls.txt" \
+        | nuclei \
+            -H "User-Agent: $UA" \
+            -t "$NUCLEI_TEMPLATES/http/exposures/" \
+            -t "$NUCLEI_TEMPLATES/http/misconfiguration/" \
+            -t "$NUCLEI_TEMPLATES/http/technologies/" \
+            -t "$NUCLEI_TEMPLATES/http/vulnerabilities/" \
+            -severity low,medium,high,critical \
+            -silent \
+            -o "$PROC/nuclei.txt" \
+            2>/dev/null || true
+
+    # Separate by severity
+    for sev in critical high medium low; do
+        grep "\[$sev\]" "$PROC/nuclei.txt" \
+            > "$PROC/nuclei_${sev}.txt" 2>/dev/null || true
+    done
+
+    success "Nuclei findings: $(count_lines "$PROC/nuclei.txt")"
+    [ -s "$PROC/nuclei_critical.txt" ] && warn "⚠  CRITICAL FINDINGS — review immediately!"
+    [ -s "$PROC/nuclei_high.txt" ]     && warn "⚠  HIGH SEVERITY findings found."
+}
+
+# ──────────────────────────────────────────────────────────────────
+# PHASE 10 — CORS Misconfiguration Check
+# ──────────────────────────────────────────────────────────────────
+phase10_cors() {
+    phase 10 "CORS Misconfiguration Check"
+
+    info "Testing CORS on all live hosts..."
+    > "$PROC/cors.txt"
+
+    while read -r url; do
+        local response
+        response=$(curl -s -I \
+            -H "Origin: https://evil.com" \
+            -H "User-Agent: $UA" \
+            --max-time 10 \
+            "$url" 2>/dev/null) || continue
+
+        local acao
+        acao=$(echo "$response" | grep -i "access-control-allow-origin" | tr -d '\r' || true)
+        local acac
+        acac=$(echo "$response" | grep -i "access-control-allow-credentials" | tr -d '\r' || true)
+
+        if echo "$acao" | grep -qiE "(evil\.com|\*)"; then
+            local vuln_level="[CORS-REFLECTED]"
+            if echo "$acac" | grep -qi "true"; then
+                vuln_level="[CORS-CREDS — HIGH]"
+                warn "CORS with credentials: $url"
+            fi
+            echo "$vuln_level $url | $acao | $acac" >> "$PROC/cors.txt"
+        fi
+
+    done < "$PROC/live_urls.txt"
+
+    success "CORS issues found: $(count_lines "$PROC/cors.txt")"
+    [ -s "$PROC/cors.txt" ] && warn "⚠  CORS misconfigurations found — check $PROC/cors.txt"
+}
+
+# ──────────────────────────────────────────────────────────────────
+# PHASE 11 — Screenshots
+# ──────────────────────────────────────────────────────────────────
+phase11_screenshots() {
+    phase 11 "Screenshots"
+
+    if command -v gowitness &>/dev/null; then
+        info "gowitness — screenshotting all live hosts..."
+        gowitness file \
+            -f "$PROC/live_urls.txt" \
+            --destination "$SHOTS/" \
+            --user-agent "$UA" \
+            2>/dev/null || true
+        success "Screenshots saved to $SHOTS/"
+
+    elif command -v aquatone &>/dev/null; then
+        info "aquatone — screenshotting all live hosts..."
+        cat "$PROC/live_urls.txt" \
+            | aquatone \
+                -out "$SHOTS/" \
+                -chrome-path "$(which google-chrome 2>/dev/null || which chromium 2>/dev/null || echo '')" \
+            2>/dev/null || true
+        success "Screenshots saved to $SHOTS/"
+
+    else
+        warn "Neither gowitness nor aquatone found — skipping screenshots."
+        warn "Install: go install github.com/sensepost/gowitness@latest"
+    fi
+}
+
+# ──────────────────────────────────────────────────────────────────
+# PHASE 12 — Final Report Generation
+# ──────────────────────────────────────────────────────────────────
+phase12_report() {
+    phase 12 "Final Report Generation"
+
+    local ts
+    ts=$(date '+%Y-%m-%d %H:%M:%S')
+
+    cat > "$REPORT" << EOF
+# GemeniFlow Recon Report
+**Target:** $DOMAIN
+**Date:** $ts
+**User-Agent:** $UA
+
+---
+
+## Summary
+
+| Phase | Item | Count |
+|-------|------|-------|
+| 1 | Unique Subdomains | $(count_lines "$PROC/unique_subs.txt") |
+| 2 | Live Hosts | $(count_lines "$PROC/live_urls.txt") |
+| 3 | Unusual Ports | $(count_lines "$PROC/unusual_ports.txt") |
+| 4 | Unique Endpoints | $(count_lines "$PROC/endpoints_unique.txt") |
+| 4 | Juicy File Types | $(count_lines "$PROC/juicy_files.txt") |
+| 4 | Parameterized URLs | $(count_lines "$PROC/parameterized_urls.txt") |
+| 5 | JS Secrets | $(count_lines "$PROC/js_secrets.txt") |
+| 5 | Hidden JS Endpoints | $(count_lines "$PROC/js_endpoints.txt") |
+| 6 | Dir Brute Paths | $(count_lines "$PROC/ffuf_merged.txt") |
+| 8 | Takeover Candidates | $(count_lines "$PROC/takeovers.txt") |
+| 9 | Nuclei Findings | $(count_lines "$PROC/nuclei.txt") |
+| 9 | Critical Findings | $(count_lines "$PROC/nuclei_critical.txt") |
+| 9 | High Findings | $(count_lines "$PROC/nuclei_high.txt") |
+| 10 | CORS Issues | $(count_lines "$PROC/cors.txt") |
+
+---
+
+## Priority Findings
+
+### 🔴 Critical / High
+$(cat "$PROC/nuclei_critical.txt" "$PROC/nuclei_high.txt" 2>/dev/null || echo "None")
+
+### ⚠️ CORS Issues
+$(cat "$PROC/cors.txt" 2>/dev/null || echo "None")
+
+### ⚠️ Takeover Candidates
+$(cat "$PROC/takeovers.txt" 2>/dev/null || echo "None")
+
+### 🔑 Potential Secrets (JS)
+$(cat "$PROC/js_secrets.txt" 2>/dev/null || echo "None")
+
+### 🌐 Unusual Open Ports
+$(cat "$PROC/unusual_ports.txt" 2>/dev/null || echo "None")
+
+### 📁 Juicy File Endpoints
+$(cat "$PROC/juicy_files.txt" 2>/dev/null | head -30 || echo "None")
+
+---
+
+## Output Files
+
+| File | Description |
+|------|-------------|
+| $PROC/live.txt | Live hosts with tech stack |
+| $PROC/live_urls.txt | Clean live URLs |
+| $PROC/endpoints_unique.txt | All discovered endpoints |
+| $PROC/juicy_files.txt | Interesting file extensions |
+| $PROC/parameterized_urls.txt | URLs with parameters |
+| $PROC/js_secrets.txt | Potential secrets from JS |
+| $PROC/js_endpoints.txt | Hidden endpoints from JS |
+| $PROC/ports.txt | Full port scan results |
+| $PROC/ffuf_merged.txt | Directory brute results |
+| $PROC/takeovers.txt | Takeover candidates |
+| $PROC/nuclei.txt | All nuclei findings |
+| $PROC/cors.txt | CORS misconfigurations |
+| $SHOTS/ | Screenshots of live hosts |
+
+---
+
+## Next Steps
+
+- [ ] Review JS secrets manually
+- [ ] Test parameterized URLs for injection/IDOR
+- [ ] Investigate unusual ports (admin panels, databases)
+- [ ] Manually verify all CORS findings
+- [ ] Check takeover candidates
+- [ ] Deep-dive into ffuf 403 responses (auth bypass attempts)
+- [ ] Download and audit juicy files
+- [ ] Analyze hidden JS endpoints for BOLA/IDOR
+EOF
+
+    success "Report generated: $REPORT"
+}
+
+# ──────────────────────────────────────────────────────────────────
+# MAIN
+# ──────────────────────────────────────────────────────────────────
+main() {
+    preflight
+
+    local start_time
+    start_time=$(date +%s)
+
+    phase1_subdomains
+    phase2_live_hosts
+    phase3_ports
+    phase4_endpoints
+    phase5_js_analysis
+    phase6_dirbrute
+    phase7_params
+    phase8_takeover
+    phase9_nuclei
+    phase10_cors
+    phase11_screenshots
+    phase12_report
+
+    local end_time elapsed
+    end_time=$(date +%s)
+    elapsed=$((end_time - start_time))
+
+    echo ""
+    echo -e "${BOLD}${GREEN}╔══════════════════════════════════════════════╗${RESET}"
+    echo -e "${BOLD}${GREEN}║          RECON COMPLETE — $DOMAIN${RESET}"
+    echo -e "${BOLD}${GREEN}╚══════════════════════════════════════════════╝${RESET}"
+    echo ""
+    echo -e "  ${CYAN}Time elapsed   :${RESET} ${elapsed}s"
+    echo -e "  ${CYAN}Live hosts     :${RESET} $(count_lines "$PROC/live_urls.txt")"
+    echo -e "  ${CYAN}Endpoints      :${RESET} $(count_lines "$PROC/endpoints_unique.txt")"
+    echo -e "  ${CYAN}JS Secrets     :${RESET} $(count_lines "$PROC/js_secrets.txt")"
+    echo -e "  ${CYAN}Nuclei hits    :${RESET} $(count_lines "$PROC/nuclei.txt")"
+    echo -e "  ${CYAN}CORS issues    :${RESET} $(count_lines "$PROC/cors.txt")"
+    echo -e "  ${CYAN}Takeovers      :${RESET} $(count_lines "$PROC/takeovers.txt")"
+    echo -e "  ${CYAN}Report         :${RESET} $REPORT"
+    echo ""
+}
+
+main "$@"
 ```
 
 Make it executable:
